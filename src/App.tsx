@@ -8,6 +8,7 @@ import {
   playItem,
   endTurn,
   startNextNeighborhood,
+  selectStartingPosition,
   appendToTurnLog,
   devRevealAll,
   devAddCandy,
@@ -15,7 +16,7 @@ import {
   devRestartNeighborhood,
   getFinalScores,
 } from './game/gameEngine';
-import { getBotAction, type BotMoveHistory } from './bots/botLogic';
+import { getBotAction, getBotStartingPosition, type BotMoveHistory } from './bots/botLogic';
 import { Board } from './components/Board';
 import { PlayerPanel } from './components/PlayerPanel';
 import { RoundEndSummary } from './components/RoundEndSummary';
@@ -24,7 +25,8 @@ import './App.css';
 
 const PLAYER_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12'];
 const COSTUMES: CostumeType[] = ['Ghost', 'Zombie', 'Witch', 'Skeleton', 'Werewolf', 'Goblin'];
-const BOT_TURN_DELAY_MS = 800;
+const BOT_TURN_DELAY_MS = 1000;
+const BOT_AFFECTED_DELAY_MS = 1500;
 
 export default function App() {
   const [state, setState] = useState<GameState | null>(null);
@@ -32,6 +34,7 @@ export default function App() {
   const [costumes, setCostumes] = useState<CostumeType[]>(['Ghost', 'Zombie']);
   const [controllerTypes, setControllerTypes] = useState<ControllerType[]>(['human', 'bot']);
   const [devRevealAllTiles, setDevRevealAllTiles] = useState(false);
+  const [showAllHands, setShowAllHands] = useState(false);
   const [showDevTools, setShowDevTools] = useState(false);
   const [pendingItem, setPendingItem] = useState<ItemCard | null>(null);
   const botTurnTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -43,6 +46,21 @@ export default function App() {
     setPendingItem(null);
     botLastMoveFromRef.current = {};
   }, [playerCount, costumes, controllerTypes]);
+
+  // Bot starting position selection
+  useEffect(() => {
+    if (!state || state.gamePhase !== 'chooseStartingPosition') return;
+    const currentPlayer = state.players[state.currentPlayerIndex];
+    if (currentPlayer.controllerType !== 'bot') return;
+
+    const pos = getBotStartingPosition(state);
+    if (!pos) return;
+
+    const timer = setTimeout(() => {
+      setState(selectStartingPosition(state, pos.row, pos.col));
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [state?.gamePhase, state?.currentPlayerIndex, state?.players]);
 
   // Bot turn automation
   useEffect(() => {
@@ -84,7 +102,8 @@ export default function App() {
       setState(nextState);
     };
 
-    botTurnTimeoutRef.current = setTimeout(executeBotAction, BOT_TURN_DELAY_MS);
+    const delay = state.lastAffectedPlayerIds?.length ? BOT_AFFECTED_DELAY_MS : BOT_TURN_DELAY_MS;
+    botTurnTimeoutRef.current = setTimeout(executeBotAction, delay);
     return () => {
       if (botTurnTimeoutRef.current) clearTimeout(botTurnTimeoutRef.current);
     };
@@ -92,7 +111,15 @@ export default function App() {
 
   const handleTileClick = useCallback(
     (row: number, col: number) => {
-      if (!state || state.gamePhase !== 'playing') return;
+      if (!state) return;
+      if (state.gamePhase === 'chooseStartingPosition') {
+        const currentPlayer = state.players[state.currentPlayerIndex];
+        if (currentPlayer.controllerType === 'human') {
+          setState(selectStartingPosition(state, row, col));
+        }
+        return;
+      }
+      if (state.gamePhase !== 'playing') return;
       const action = state.selectedAction;
       if (action === 'move') {
         setState(move(state, row, col));
@@ -227,6 +254,64 @@ export default function App() {
     );
   }
 
+  if (state.gamePhase === 'chooseStartingPosition') {
+    const choosingPlayer = state.players[state.currentPlayerIndex];
+    const isHumanChoosing = choosingPlayer.controllerType === 'human';
+    return (
+      <div className="app">
+        <header className="header">
+          <h1>Trick or Treat v0.5</h1>
+          <p className="round-info">
+            Neighborhood {state.roundNumber + 1}/3 • Choose starting houses
+          </p>
+          <p className="message">
+            {isHumanChoosing
+              ? `${choosingPlayer.name}, click a house in the first row to start`
+              : `${choosingPlayer.name} is choosing...`}
+          </p>
+        </header>
+        <div className="game-layout">
+          <div className="player-panels">
+            {state.players.map((player, i) => (
+              <PlayerPanel
+                key={player.id}
+                player={player}
+                isCurrent={player.id === choosingPlayer.id}
+                color={PLAYER_COLORS[i]}
+                showHand={showAllHands || player.controllerType === 'human'}
+                isAffected={false}
+              />
+            ))}
+          </div>
+          <div className="board-area">
+            <Board
+              state={state}
+              onTileClick={handleTileClick}
+              devRevealAll={devRevealAllTiles}
+            />
+          </div>
+        </div>
+        <div className="dev-tools">
+          <button type="button" onClick={() => setShowDevTools(!showDevTools)} className="dev-toggle">
+            {showDevTools ? 'Hide' : 'Show'} Dev Tools
+          </button>
+          {showDevTools && (
+            <div className="dev-panel">
+              <label className="dev-toggle-label">
+                <input
+                  type="checkbox"
+                  checked={showAllHands}
+                  onChange={(e) => setShowAllHands(e.target.checked)}
+                />
+                Show All Hands
+              </label>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (state.gamePhase === 'roundEnd') {
     return (
       <div className="app">
@@ -261,6 +346,9 @@ export default function App() {
       {state.turnLog.length > 0 && (
         <div className="turn-log">
           <h3>Turn Log</h3>
+          {state.lastActionDescription && state.lastAffectedPlayerIds && state.lastAffectedPlayerIds.length > 0 && (
+            <p className="turn-log-affected">{state.lastActionDescription}</p>
+          )}
           <ul>
             {state.turnLog.slice(-12).map((msg, i) => (
               <li key={i}>{msg}</li>
@@ -283,6 +371,8 @@ export default function App() {
                 state.selectedAction === 'playItem' &&
                 player.id === currentPlayer.id
               }
+              showHand={showAllHands || player.controllerType === 'human'}
+              isAffected={state.lastAffectedPlayerIds?.includes(player.id) ?? false}
             />
           ))}
         </div>
@@ -336,6 +426,14 @@ export default function App() {
         </button>
         {showDevTools && (
           <div className="dev-panel">
+            <label className="dev-toggle-label">
+              <input
+                type="checkbox"
+                checked={showAllHands}
+                onChange={(e) => setShowAllHands(e.target.checked)}
+              />
+              Show All Hands
+            </label>
             <button
               type="button"
               onClick={() => {

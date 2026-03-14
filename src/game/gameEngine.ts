@@ -41,6 +41,41 @@ export function appendToTurnLog(state: GameState, message: string): GameState {
   };
 }
 
+/** Select starting position (first row only). One player per tile. */
+export function selectStartingPosition(
+  state: GameState,
+  row: number,
+  col: number
+): GameState {
+  if (state.gamePhase !== 'chooseStartingPosition') return state;
+  if (row !== 0) return state; // Must be first row
+
+  const tile = state.board[row]?.[col];
+  if (!tile) return state;
+
+  const occupied = state.players.some(
+    (p) => p.pawnPosition?.row === row && p.pawnPosition?.column === col
+  );
+  if (occupied) return state;
+
+  const players = state.players.map((p, i) =>
+    i === state.currentPlayerIndex ? { ...p, pawnPosition: { row, column: col } } : p
+  );
+
+  const nextIndex = state.currentPlayerIndex + 1;
+  const allChosen = nextIndex >= players.length;
+
+  return {
+    ...state,
+    players,
+    currentPlayerIndex: allChosen ? 0 : nextIndex,
+    gamePhase: allChosen ? 'playing' : 'chooseStartingPosition',
+    message: allChosen
+      ? `${players[0].name}'s turn.`
+      : `${players[nextIndex].name}, choose your starting house (first row)`,
+  };
+}
+
 // --- Card resolution ---
 
 function resolveCandyBucket(
@@ -183,35 +218,63 @@ function resolveMonster(
     };
   }
 
+  const withAffected = (s: GameState, ids: string[], desc: string) => ({
+    ...s,
+    lastAffectedPlayerIds: ids,
+    lastActionDescription: desc,
+  });
+
   switch (card.monsterType) {
     case 'Ghost':
       players[playerIdx] = {
         ...player,
         candyTokens: Math.max(0, player.candyTokens - GAME_RULES.ghostLoseTokens),
       };
-      return { ...state, players, message: `${player.name} lost 3 candy to Ghost!` };
+      return withAffected(
+        { ...state, players, message: `${player.name} lost 3 candy to Ghost!` },
+        [player.id],
+        'lost 3 candy to Ghost'
+      );
 
     case 'Zombie':
       players[playerIdx] = { ...player, skipNextTurn: true };
-      return { ...state, players, message: `${player.name} skips next turn (Zombie)!` };
+      return withAffected(
+        { ...state, players, message: `${player.name} skips next turn (Zombie)!` },
+        [player.id],
+        'skips next turn (Zombie)'
+      );
 
     case 'Witch': {
       const otherIdx = players.findIndex((p) => p.id !== playerId);
       if (otherIdx !== -1) {
+        const other = players[otherIdx];
         const temp = players[playerIdx].itemCards;
         players[playerIdx] = { ...player, itemCards: players[otherIdx].itemCards };
         players[otherIdx] = { ...players[otherIdx], itemCards: temp };
+        return withAffected(
+          { ...state, players, message: `${player.name} swapped hands with ${other.name} (Witch)!` },
+          [player.id, other.id],
+          'swapped hands (Witch)'
+        );
       }
       return { ...state, players, message: `${player.name} swapped hands with Witch!` };
     }
 
     case 'Skeleton':
-      return { ...state, message: `${player.name} revealed hand (Skeleton)!` };
+      return withAffected(
+        { ...state, message: `${player.name} revealed hand (Skeleton)!` },
+        [player.id],
+        'revealed hand (Skeleton)'
+      );
 
     case 'Werewolf': {
       const lost = Math.floor(player.candyTokens / 2);
       players[playerIdx] = { ...player, candyTokens: player.candyTokens - lost };
-      return { ...state, players, message: `${player.name} lost half candy to Werewolf!` };
+      return withAffected(
+        { ...state, players, message: `${player.name} lost half candy to Werewolf!` },
+        [player.id],
+        `lost ${lost} candy to Werewolf`
+      );
     }
 
     case 'Goblin': {
@@ -229,8 +292,13 @@ function resolveMonster(
           ...player,
           itemCards: [...player.itemCards, taken],
         };
+        return withAffected(
+          { ...state, players, message: `${player.name} took a card from ${fewest.name} (Goblin)!` },
+          [fewest.id, player.id],
+          `${player.name} took card from ${fewest.name} (Goblin)`
+        );
       }
-      return { ...state, players, message: `${player.name} took a card from ${fewest.name} (Goblin)!` };
+      return { ...state, players, message: `${player.name} triggered Goblin!` };
     }
 
     default:
@@ -252,6 +320,10 @@ function resolveEnder(state: GameState): GameState {
 
 // --- Actions ---
 
+function clearAffectedState(s: GameState): GameState {
+  return { ...s, lastAffectedPlayerIds: undefined, lastActionDescription: undefined };
+}
+
 export function selectAction(
   state: GameState,
   action: 'move' | 'goHome' | 'playItem'
@@ -262,7 +334,7 @@ export function selectAction(
   if (player.skipNextTurn) return state;
 
   return {
-    ...state,
+    ...clearAffectedState(state),
     selectedAction: action,
     message: `Selected: ${action}. ${action === 'playItem' ? 'Choose an item to play.' : 'Choose a tile to move to.'}`,
   };
@@ -270,6 +342,7 @@ export function selectAction(
 
 export function goHome(state: GameState): GameState {
   if (state.gamePhase !== 'playing') return state;
+  state = clearAffectedState(state);
   const player = state.players[state.currentPlayerIndex];
   if (player.isHome) return state;
   if (player.skipNextTurn) return state;
@@ -332,6 +405,7 @@ function advanceToNextPlayer(
 export function move(state: GameState, row: number, col: number): GameState {
   if (state.gamePhase !== 'playing' || state.selectedAction !== 'move')
     return state;
+  state = clearAffectedState(state);
   const player = state.players[state.currentPlayerIndex];
   if (player.isHome || player.skipNextTurn) return state;
 
@@ -421,6 +495,7 @@ export function playItem(
   const player = state.players[state.currentPlayerIndex];
   if (player.isHome || player.skipNextTurn) return state;
   if (!player.itemCards.some((c) => c.id === item.id)) return state;
+  state = clearAffectedState(state);
 
   const players = [...state.players];
   const playerIdx = state.currentPlayerIndex;
@@ -510,6 +585,7 @@ export function playItem(
 
 export function endTurn(state: GameState): GameState {
   if (state.gamePhase !== 'playing') return state;
+  state = clearAffectedState(state);
   const player = state.players[state.currentPlayerIndex];
   const withLog = appendToTurnLog(state, `${player.name} ended turn`);
   const players = [...withLog.players];

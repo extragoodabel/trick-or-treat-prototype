@@ -25,6 +25,8 @@ interface PlayerPanelProps {
   color: string;
   onPlayItem?: (item: ItemCard) => void;
   canPlayItem?: boolean;
+  showHand?: boolean;
+  isAffected?: boolean;
 }
 
 export function PlayerPanel({
@@ -33,10 +35,12 @@ export function PlayerPanel({
   color,
   onPlayItem,
   canPlayItem,
+  showHand = true,
+  isAffected = false,
 }: PlayerPanelProps) {
   return (
     <div
-      className={`player-panel ${isCurrent ? 'current' : ''}`}
+      className={`player-panel ${isCurrent ? 'current' : ''} ${isAffected ? 'affected' : ''}`}
       style={{ borderColor: color }}
     >
       <div className="player-header">
@@ -51,23 +55,27 @@ export function PlayerPanel({
       </div>
       <div className="player-items">
         {player.itemCards.length > 0 ? (
-          <ul>
-            {player.itemCards.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  className="item-btn"
-                  onClick={() => canPlayItem && onPlayItem?.(item)}
-                  disabled={!canPlayItem}
-                  title={`${ITEM_LABELS[item.type] || item.type} (${item.points} pts)`}
-                >
-                  {ITEM_LABELS[item.type] || item.type} {item.points !== 0 && `(${item.points})`}
-                </button>
-              </li>
-            ))}
-          </ul>
+          showHand ? (
+            <ul>
+              {player.itemCards.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className="item-btn"
+                    onClick={() => canPlayItem && onPlayItem?.(item)}
+                    disabled={!canPlayItem}
+                    title={`${ITEM_LABELS[item.type] || item.type} (${item.points} pts)`}
+                  >
+                    {ITEM_LABELS[item.type] || item.type} {item.points !== 0 && `(${item.points})`}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <span className="no-items">Items: {player.itemCards.length} cards</span>
+          )
         ) : (
-          <span className="no-items">No items</span>
+          <span className="no-items">{showHand ? 'No items' : 'Items: 0 cards'}</span>
         )}
       </div>
     </div>

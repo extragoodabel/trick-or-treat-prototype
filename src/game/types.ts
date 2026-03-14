@@ -66,6 +66,7 @@ export interface Player {
 export type GamePhase =
   | 'setup'
   | 'costumeSelection'
+  | 'chooseStartingPosition'
   | 'playing'
   | 'roundEnd'
   | 'gameOver';
@@ -84,4 +85,8 @@ export interface GameState {
   pendingItemPlay: ItemCard | null;
   message: string;
   turnLog: string[];
+  /** For UI feedback: player IDs affected by last action (e.g. monster, Witch swap) */
+  lastAffectedPlayerIds?: string[];
+  /** For UI feedback: short description of what happened to affected players */
+  lastActionDescription?: string;
 }

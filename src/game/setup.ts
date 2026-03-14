@@ -1,8 +1,8 @@
 import type { GameState, Player, Tile, TileCard, ControllerType } from './types';
 import { GAME_RULES } from './gameRules';
 import {
-  HOUSE_DECK,
-  MANSION_DECK,
+  getHouseDeckForRound,
+  getMansionDeckForRound,
   shuffle,
 } from './cardDefinitions';
 
@@ -62,10 +62,13 @@ function createEmptyBoard(): Tile[][] {
   return board;
 }
 
-export function generateBoard(): { board: Tile[][]; houseDeck: TileCard[]; mansionDeck: TileCard[] } {
+export function generateBoard(
+  roundNumber: number
+): { board: Tile[][]; houseDeck: TileCard[]; mansionDeck: TileCard[] } {
   const board = createEmptyBoard();
-  const houseDeck = shuffle(HOUSE_DECK);
-  const mansionDeck = shuffle(MANSION_DECK);
+  const houseDeck = shuffle(getHouseDeckForRound(roundNumber));
+  const mansionPool = getMansionDeckForRound(roundNumber);
+  const mansionDeck = shuffle(mansionPool);
 
   let houseIndex = 0;
   for (let r = 0; r < GAME_RULES.houseDeckRows; r++) {
@@ -99,16 +102,20 @@ export function setupNewNeighborhood(
   devRevealAll?: boolean,
   devSkipToMansion?: boolean
 ): GameState {
-  const { board, houseDeck, mansionDeck } = generateBoard();
+  const { board, houseDeck, mansionDeck } = generateBoard(state.roundNumber);
 
   const players = state.players.map((p) => ({
     ...p,
-    pawnPosition: devSkipToMansion
-      ? { row: 4, column: 0 }
-      : { row: 0, column: 0 },
+    pawnPosition: devSkipToMansion ? { row: 4, column: 0 } : null,
     isHome: false,
     skipNextTurn: false,
   }));
+
+  const gamePhase = devSkipToMansion ? 'playing' : 'chooseStartingPosition';
+  const message =
+    gamePhase === 'chooseStartingPosition'
+      ? `${players[0].name}, choose your starting house (first row)`
+      : `Neighborhood ${state.roundNumber + 1} - ${players[0].name}'s turn`;
 
   if (devRevealAll) {
     for (let r = 0; r < board.length; r++) {
@@ -126,9 +133,11 @@ export function setupNewNeighborhood(
     mansionDeck,
     candySupply: GAME_RULES.initialCandySupply,
     currentPlayerIndex: 0,
-    gamePhase: 'playing',
+    gamePhase,
     selectedAction: null,
     pendingItemPlay: null,
-    message: `Neighborhood ${state.roundNumber + 1} - ${players[0].name}'s turn`,
+    message,
+    lastAffectedPlayerIds: undefined,
+    lastActionDescription: undefined,
   };
 }

@@ -1,44 +1,52 @@
 import type { TileCard, ItemCard, ItemCardType } from './types';
 import { GAME_RULES } from './gameRules';
 
-// House deck composition (rows 1-4)
-export const HOUSE_DECK: TileCard[] = [
-  { type: 'CandyBucket' },
-  { type: 'CandyBucket' },
-  { type: 'CandyBucket' },
-  { type: 'Item' },
-  { type: 'Item' },
-  { type: 'Item' },
-  { type: 'Monster', monsterType: 'Ghost' },
-  { type: 'Monster', monsterType: 'Zombie' },
-  { type: 'Monster', monsterType: 'Witch' },
-  { type: 'Monster', monsterType: 'Skeleton' },
-  { type: 'Monster', monsterType: 'Werewolf' },
-  { type: 'Monster', monsterType: 'Goblin' },
-  { type: 'Monster', monsterType: 'Ghost' },
-  { type: 'Monster', monsterType: 'Zombie' },
-  { type: 'Monster', monsterType: 'Witch' },
-  { type: 'Monster', monsterType: 'Skeleton' },
-  { type: 'Monster', monsterType: 'Werewolf' },
-  { type: 'Monster', monsterType: 'Goblin' },
-  { type: 'Monster', monsterType: 'Ghost' },
-  { type: 'Monster', monsterType: 'Zombie' },
-];
+const MONSTER_TYPES = ['Ghost', 'Zombie', 'Witch', 'Skeleton', 'Werewolf', 'Goblin'] as const;
 
-// Mansion deck (row 5) - draw 4 + Ender
-export const MANSION_DECK: TileCard[] = [
-  { type: 'CandyBucket' },
-  { type: 'CandyBucket' },
-  { type: 'Item' },
-  { type: 'Item' },
-  { type: 'Monster', monsterType: 'Ghost' },
-  { type: 'Monster', monsterType: 'Zombie' },
-  { type: 'Monster', monsterType: 'Witch' },
-  { type: 'Monster', monsterType: 'Skeleton' },
-  { type: 'Monster', monsterType: 'Werewolf' },
-  { type: 'Monster', monsterType: 'Goblin' },
-  { type: 'Ender' },
-];
+function createMonsters(count: number): TileCard[] {
+  const cards: TileCard[] = [];
+  for (let i = 0; i < count; i++) {
+    cards.push({ type: 'Monster', monsterType: MONSTER_TYPES[i % MONSTER_TYPES.length] });
+  }
+  return cards;
+}
+
+/**
+ * Build house deck (rows 1-4) for a given neighborhood.
+ * Escalation: Round 1 = exploration-friendly, Round 2 = balanced, Round 3 = dangerous.
+ */
+export function getHouseDeckForRound(roundNumber: number): TileCard[] {
+  const counts = [
+    { candy: 8, item: 6, monster: 6 }, // Neighborhood 1: fewer monsters, more rewards
+    { candy: 6, item: 6, monster: 8 }, // Neighborhood 2: balanced
+    { candy: 4, item: 4, monster: 12 }, // Neighborhood 3: highest monster density
+  ];
+  const c = counts[Math.min(roundNumber, 2)];
+  return [
+    ...Array(c.candy).fill(null).map(() => ({ type: 'CandyBucket' as const })),
+    ...Array(c.item).fill(null).map(() => ({ type: 'Item' as const })),
+    ...createMonsters(c.monster),
+  ];
+}
+
+/**
+ * Build mansion deck (row 5) for a given neighborhood.
+ * Mansion Row stays dangerous every round; Round 3 is most punishing.
+ */
+export function getMansionDeckForRound(roundNumber: number): TileCard[] {
+  const pools = [
+    { candy: 1, item: 1, monster: 2 }, // Neighborhood 1: some rewards, still dangerous
+    { candy: 1, item: 1, monster: 2 }, // Neighborhood 2: balanced
+    { candy: 0, item: 1, monster: 3 }, // Neighborhood 3: fewest rewards, most monsters
+  ];
+  const p = pools[Math.min(roundNumber, 2)];
+  return [
+    ...Array(p.candy).fill(null).map(() => ({ type: 'CandyBucket' as const })),
+    ...Array(p.item).fill(null).map(() => ({ type: 'Item' as const })),
+    ...createMonsters(p.monster),
+    { type: 'Ender' as const },
+  ];
+}
 
 // Item deck for drawing when landing on Item tiles
 export const ITEM_DECK: ItemCardType[] = [

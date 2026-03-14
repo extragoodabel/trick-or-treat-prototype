@@ -14,6 +14,7 @@ interface BoardProps {
 export function Board({ state, onTileClick, devRevealAll }: BoardProps) {
   const selectedAction = state.selectedAction;
   const isMove = selectedAction === 'move';
+  const isChooseStart = state.gamePhase === 'chooseStartingPosition';
   const currentPlayer = state.players[state.currentPlayerIndex];
   const pawnPos = currentPlayer?.pawnPosition ?? null;
 
@@ -23,8 +24,12 @@ export function Board({ state, onTileClick, devRevealAll }: BoardProps) {
     const hasPawn = state.players.some(
       (p) => p.pawnPosition?.row === row && p.pawnPosition?.column === col
     );
+    const occupied = hasPawn;
+    const isFirstRow = row === 0;
     const isAdjacent = pawnPos === null || isOrthogonallyAdjacent(pawnPos.row, pawnPos.column, row, col);
-    const selectable = isMove && !tile.isClosed && isAdjacent;
+    const selectable =
+      (isMove && !tile.isClosed && isAdjacent) ||
+      (isChooseStart && isFirstRow && !occupied);
     return { selectable, hasPawn };
   };
 

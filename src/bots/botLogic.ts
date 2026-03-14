@@ -29,6 +29,22 @@ export interface BotMoveHistory {
   roundNumber: number;
 }
 
+/** Get a random available first-row tile for starting position. Returns null if none. */
+export function getBotStartingPosition(state: GameState): { row: number; col: number } | null {
+  if (state.gamePhase !== 'chooseStartingPosition') return null;
+  const occupied = new Set(
+    state.players
+      .filter((p) => p.pawnPosition !== null)
+      .map((p) => `${p.pawnPosition!.row},${p.pawnPosition!.column}`)
+  );
+  const available: { row: number; col: number }[] = [];
+  for (let c = 0; c < 5; c++) {
+    if (!occupied.has(`0,${c}`)) available.push({ row: 0, col: c });
+  }
+  if (available.length === 0) return null;
+  return available[Math.floor(Math.random() * available.length)];
+}
+
 /**
  * Score a potential move. Positive = productive, zero/negative = non-productive.
  * Used to avoid infinite loops: if all moves score <= 0, bot goes home.
