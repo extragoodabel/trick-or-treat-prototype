@@ -1,0 +1,134 @@
+import type { GameState, Player, Tile, TileCard, ControllerType } from './types';
+import { GAME_RULES } from './gameRules';
+import {
+  HOUSE_DECK,
+  MANSION_DECK,
+  shuffle,
+} from './cardDefinitions';
+
+export function createInitialPlayers(
+  count: number,
+  costumes?: string[],
+  controllerTypes?: ControllerType[]
+): Player[] {
+  const costumeTypes = [
+    'Ghost',
+    'Zombie',
+    'Witch',
+    'Skeleton',
+    'Werewolf',
+    'Goblin',
+  ] as const;
+  const players: Player[] = [];
+  for (let i = 0; i < count; i++) {
+    const costume =
+      costumes?.[i] && costumeTypes.includes(costumes[i] as (typeof costumeTypes)[number])
+        ? (costumes[i] as (typeof costumeTypes)[number])
+        : costumeTypes[i % costumeTypes.length];
+    const ctrl = controllerTypes?.[i] ?? 'human';
+    const name = ctrl === 'bot' ? `${costume} Bot` : `Player ${i + 1}`;
+    players.push({
+      id: `player-${i}`,
+      name,
+      costume,
+      controllerType: ctrl,
+      pawnPosition: null,
+      candyTokens: 0,
+      itemCards: [],
+      isHome: false,
+      skipNextTurn: false,
+    });
+  }
+  return players;
+}
+
+function createEmptyBoard(): Tile[][] {
+  const board: Tile[][] = [];
+  for (let r = 0; r < GAME_RULES.boardRows; r++) {
+    const row: Tile[] = [];
+    for (let c = 0; c < GAME_RULES.boardCols; c++) {
+      row.push({
+        row: r,
+        column: c,
+        card: null,
+        isFlipped: false,
+        candyTokensOnTile: 0,
+        isClosed: false,
+        bucketVisits: {},
+      });
+    }
+    board.push(row);
+  }
+  return board;
+}
+
+export function generateBoard(): { board: Tile[][]; houseDeck: TileCard[]; mansionDeck: TileCard[] } {
+  const board = createEmptyBoard();
+  const houseDeck = shuffle(HOUSE_DECK);
+  const mansionDeck = shuffle(MANSION_DECK);
+
+  let houseIndex = 0;
+  for (let r = 0; r < GAME_RULES.houseDeckRows; r++) {
+    for (let c = 0; c < GAME_RULES.boardCols; c++) {
+      if (houseIndex < houseDeck.length) {
+        board[r][c].card = houseDeck[houseIndex];
+        houseIndex++;
+      }
+    }
+  }
+
+  // Row 5: 4 random mansion + 1 Ender
+  const mansionDraw = mansionDeck
+    .filter((c) => c.type !== 'Ender')
+    .slice(0, GAME_RULES.mansionCardsCount);
+  const ender = mansionDeck.find((c) => c.type === 'Ender')!;
+  const row5Cards = shuffle([...mansionDraw, ender]);
+  for (let c = 0; c < GAME_RULES.boardCols; c++) {
+    board[4][c].card = row5Cards[c];
+  }
+
+  return {
+    board,
+    houseDeck: houseDeck.slice(houseIndex),
+    mansionDeck: mansionDeck.filter((c) => !row5Cards.includes(c)),
+  };
+}
+
+export function setupNewNeighborhood(
+  state: GameState,
+  devRevealAll?: boolean,
+  devSkipToMansion?: boolean
+): GameState {
+  const { board, houseDeck, mansionDeck } = generateBoard();
+
+  const players = state.players.map((p) => ({
+    ...p,
+    pawnPosition: devSkipToMansion
+      ? { row: 4, column: 0 }
+      : { row: 0, column: 0 },
+    isHome: false,
+    skipNextTurn: false,
+  }));
+
+  if (devRevealAll) {
+    for (let r = 0; r < board.length; r++) {
+      for (let c = 0; c < board[r].length; c++) {
+        board[r][c].isFlipped = true;
+      }
+    }
+  }
+
+  return {
+    ...state,
+    players,
+    board,
+    houseDeck,
+    mansionDeck,
+    candySupply: GAME_RULES.initialCandySupply,
+    currentPlayerIndex: 0,
+    gamePhase: 'playing',
+    selectedAction: null,
+    pendingItemPlay: null,
+    message: `Neighborhood ${state.roundNumber + 1} - ${players[0].name}'s turn`,
+  };
+}
