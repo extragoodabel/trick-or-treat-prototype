@@ -4,8 +4,7 @@ import {
   createNewGame,
   selectAction,
   goHome,
-  moveAndFlip,
-  moveAndResolve,
+  move,
   playItem,
   endTurn,
   startNextNeighborhood,
@@ -16,7 +15,7 @@ import {
   devRestartNeighborhood,
   getFinalScores,
 } from './game/gameEngine';
-import { getBotAction } from './bots/botLogic';
+import { getBotAction, type BotMoveHistory } from './bots/botLogic';
 import { Board } from './components/Board';
 import { PlayerPanel } from './components/PlayerPanel';
 import { RoundEndSummary } from './components/RoundEndSummary';
@@ -36,11 +35,13 @@ export default function App() {
   const [showDevTools, setShowDevTools] = useState(false);
   const [pendingItem, setPendingItem] = useState<ItemCard | null>(null);
   const botTurnTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const botLastMoveFromRef = useRef<Record<string, BotMoveHistory>>({});
 
   const startGame = useCallback(() => {
     const gameState = createNewGame(playerCount, costumes as string[], controllerTypes);
     setState(gameState);
     setPendingItem(null);
+    botLastMoveFromRef.current = {};
   }, [playerCount, costumes, controllerTypes]);
 
   // Bot turn automation
@@ -50,20 +51,26 @@ export default function App() {
     if (currentPlayer.controllerType !== 'bot' || currentPlayer.isHome || currentPlayer.skipNextTurn) {
       return;
     }
-    const action = getBotAction(state, currentPlayer.id);
+    const lastMoveFrom = botLastMoveFromRef.current[currentPlayer.id] ?? null;
+    const action = getBotAction(state, currentPlayer.id, lastMoveFrom);
     if (!action) return;
 
     const executeBotAction = () => {
       if (!state) return;
-      let nextState = appendToTurnLog(state, action.logMessage);
+      let nextState = state;
       if (action.type === 'goHome') {
+        nextState = appendToTurnLog(nextState, action.logMessage);
         nextState = goHome(nextState);
-      } else if (action.type === 'moveFlip' && action.targetTile) {
-        nextState = selectAction(nextState, 'moveFlip');
-        nextState = moveAndFlip(nextState, action.targetTile.row, action.targetTile.col);
-      } else if (action.type === 'moveResolve' && action.targetTile) {
-        nextState = selectAction(nextState, 'moveResolve');
-        nextState = moveAndResolve(nextState, action.targetTile.row, action.targetTile.col);
+      } else if (action.type === 'move' && action.targetTile) {
+        const fromPos = state.players[state.currentPlayerIndex].pawnPosition;
+        if (fromPos) {
+          botLastMoveFromRef.current[currentPlayer.id] = {
+            from: { row: fromPos.row, col: fromPos.column },
+            roundNumber: state.roundNumber,
+          };
+        }
+        nextState = selectAction(nextState, 'move');
+        nextState = move(nextState, action.targetTile.row, action.targetTile.col);
       } else if (action.type === 'playItem' && action.item) {
         if (action.targetTile) {
           nextState = playItem(nextState, action.item, {
@@ -87,10 +94,8 @@ export default function App() {
     (row: number, col: number) => {
       if (!state || state.gamePhase !== 'playing') return;
       const action = state.selectedAction;
-      if (action === 'moveFlip') {
-        setState(moveAndFlip(state, row, col));
-      } else if (action === 'moveResolve') {
-        setState(moveAndResolve(state, row, col));
+      if (action === 'move') {
+        setState(move(state, row, col));
       } else if (pendingItem) {
         if (pendingItem.type === 'Shortcut') {
           setState(playItem(state, pendingItem, { row, col }));
@@ -230,7 +235,10 @@ export default function App() {
         </header>
         <RoundEndSummary
           state={state}
-          onContinue={() => setState(startNextNeighborhood(state))}
+          onContinue={() => {
+            botLastMoveFromRef.current = {};
+            setState(startNextNeighborhood(state));
+          }}
         />
       </div>
     );
@@ -293,17 +301,10 @@ export default function App() {
           <>
             <button
               type="button"
-              onClick={() => setState(selectAction(state, 'moveFlip'))}
-              className={state.selectedAction === 'moveFlip' ? 'active' : ''}
+              onClick={() => setState(selectAction(state, 'move'))}
+              className={state.selectedAction === 'move' ? 'active' : ''}
             >
-              Move & Flip
-            </button>
-            <button
-              type="button"
-              onClick={() => setState(selectAction(state, 'moveResolve'))}
-              className={state.selectedAction === 'moveResolve' ? 'active' : ''}
-            >
-              Move & Resolve
+              Move
             </button>
             <button type="button" onClick={() => setState(goHome(state))}>
               Go Home

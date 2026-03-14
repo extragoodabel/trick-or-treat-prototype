@@ -80,7 +80,7 @@ export interface GameState {
   candySupply: number;
   roundNumber: number;
   gamePhase: GamePhase;
-  selectedAction: 'moveFlip' | 'moveResolve' | 'goHome' | 'playItem' | null;
+  selectedAction: 'move' | 'goHome' | 'playItem' | null;
   pendingItemPlay: ItemCard | null;
   message: string;
   turnLog: string[];

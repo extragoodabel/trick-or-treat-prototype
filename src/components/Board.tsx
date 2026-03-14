@@ -13,8 +13,7 @@ interface BoardProps {
 
 export function Board({ state, onTileClick, devRevealAll }: BoardProps) {
   const selectedAction = state.selectedAction;
-  const isMoveFlip = selectedAction === 'moveFlip';
-  const isMoveResolve = selectedAction === 'moveResolve';
+  const isMove = selectedAction === 'move';
   const currentPlayer = state.players[state.currentPlayerIndex];
   const pawnPos = currentPlayer?.pawnPosition ?? null;
 
@@ -24,10 +23,8 @@ export function Board({ state, onTileClick, devRevealAll }: BoardProps) {
     const hasPawn = state.players.some(
       (p) => p.pawnPosition?.row === row && p.pawnPosition?.column === col
     );
-    let selectable = false;
     const isAdjacent = pawnPos === null || isOrthogonallyAdjacent(pawnPos.row, pawnPos.column, row, col);
-    if (isMoveFlip && !tile.isFlipped && !tile.isClosed && isAdjacent) selectable = true;
-    if (isMoveResolve && tile.isFlipped && !tile.isClosed && isAdjacent) selectable = true;
+    const selectable = isMove && !tile.isClosed && isAdjacent;
     return { selectable, hasPawn };
   };
 
