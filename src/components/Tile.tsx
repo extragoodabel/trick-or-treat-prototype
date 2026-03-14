@@ -7,6 +7,7 @@ interface TileProps {
   playerColor: string;
   onClick: () => void;
   devRevealAll?: boolean;
+  isMansionRow?: boolean;
 }
 
 const MONSTER_ICONS: Record<string, string> = {
@@ -25,6 +26,7 @@ export function TileComponent({
   playerColor,
   onClick,
   devRevealAll,
+  isMansionRow,
 }: TileProps) {
   const showCard = tile.isFlipped || devRevealAll;
   const card = tile.card;
@@ -54,7 +56,7 @@ export function TileComponent({
   return (
     <button
       type="button"
-      className={`tile ${tile.isClosed ? 'closed' : ''} ${isSelected ? 'selected' : ''} ${hasPawn ? 'has-pawn' : ''}`}
+      className={`tile ${tile.isClosed ? 'closed' : ''} ${isSelected ? 'selected' : ''} ${hasPawn ? 'has-pawn' : ''} ${isMansionRow ? 'mansion-row' : ''}`}
       onClick={onClick}
       disabled={tile.isClosed}
       style={hasPawn ? { '--pawn-color': playerColor } as React.CSSProperties : undefined}

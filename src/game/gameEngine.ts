@@ -5,6 +5,8 @@ import {
   ITEM_DECK,
 } from './cardDefinitions';
 import { setupNewNeighborhood, createInitialPlayers } from './setup';
+import { formatTileLocation } from './boardLabels';
+import { isOrthogonallyAdjacent } from './movement';
 
 // --- Game setup ---
 
@@ -259,12 +261,24 @@ export function goHome(state: GameState): GameState {
   const players = [...state.players];
   players[state.currentPlayerIndex] = { ...player, isHome: true };
   const { nextIndex: nextIdx, updatedPlayers: updatedPlayers } = advanceToNextPlayer(state.currentPlayerIndex, players);
+  const withLog = appendToTurnLog(state, `${player.name} went home`);
+  const allHome = updatedPlayers.every((p) => p.isHome);
+  if (allHome) {
+    return {
+      ...withLog,
+      players: updatedPlayers,
+      currentPlayerIndex: 0,
+      selectedAction: null,
+      gamePhase: 'roundEnd',
+      message: 'Everyone went home! Neighborhood complete.',
+    };
+  }
   return {
-    ...state,
+    ...withLog,
     players: updatedPlayers,
     currentPlayerIndex: nextIdx,
     selectedAction: null,
-    message: `${player.name} went home! ${players[nextIdx].name}'s turn.`,
+    message: `${player.name} went home! ${updatedPlayers[nextIdx].name}'s turn.`,
   };
 }
 
@@ -272,10 +286,14 @@ function advanceToNextPlayer(
   current: number,
   players: Player[]
 ): { nextIndex: number; updatedPlayers: Player[] } {
-  let next = (current + 1) % players.length;
   const active = players.filter((p) => !p.isHome);
-  if (active.length <= 1) return { nextIndex: current, updatedPlayers: players };
+  if (active.length === 0) return { nextIndex: current, updatedPlayers: players };
+  if (active.length === 1) {
+    const soleActiveIdx = players.findIndex((p) => !p.isHome);
+    return { nextIndex: soleActiveIdx, updatedPlayers: players };
+  }
 
+  let next = (current + 1) % players.length;
   while (players[next].isHome) {
     next = (next + 1) % players.length;
   }
@@ -303,6 +321,14 @@ export function moveAndFlip(
   const tile = state.board[row]?.[col];
   if (!tile || tile.isFlipped || tile.isClosed) return state;
 
+  const pos = player.pawnPosition;
+  if (pos !== null && !isOrthogonallyAdjacent(pos.row, pos.column, row, col)) {
+    return {
+      ...state,
+      message: 'Movement must be to an adjacent house (up, down, left, or right).',
+    };
+  }
+
   let newState: GameState = {
     ...state,
     board: state.board.map((r, ri) =>
@@ -319,16 +345,22 @@ export function moveAndFlip(
   const card = tile.card;
   if (!card) return newState;
 
+  let logMsg = `${player.name} moved to ${formatTileLocation(row, col)} and flipped`;
   if (card.type === 'CandyBucket') {
     newState = resolveCandyBucket(newState, { ...tile, isFlipped: true }, player.id, true);
+    logMsg += ' Candy Bucket';
   } else if (card.type === 'Item') {
     newState = resolveItemTile(newState, player.id);
+    logMsg += ' Item card';
   } else if (card.type === 'Monster') {
     newState = resolveMonster(newState, { ...tile, isFlipped: true }, player.id);
+    logMsg += ` ${card.monsterType ?? 'Monster'}`;
   } else if (card.type === 'Ender') {
+    newState = appendToTurnLog(newState, `${player.name} flipped Ender`);
     newState = resolveEnder(newState);
     return newState;
   }
+  newState = appendToTurnLog(newState, logMsg);
 
   const players = newState.players;
   const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state.currentPlayerIndex, players);
@@ -353,6 +385,14 @@ export function moveAndResolve(
   const tile = state.board[row]?.[col];
   if (!tile || !tile.isFlipped || tile.isClosed) return state;
 
+  const pos = player.pawnPosition;
+  if (pos !== null && !isOrthogonallyAdjacent(pos.row, pos.column, row, col)) {
+    return {
+      ...state,
+      message: 'Movement must be to an adjacent house (up, down, left, or right).',
+    };
+  }
+
   let newState: GameState = {
     ...state,
     players: state.players.map((p, i) =>
@@ -364,16 +404,22 @@ export function moveAndResolve(
   const card = tile.card;
   if (!card) return newState;
 
+  let logMsg = `${player.name} moved to ${formatTileLocation(row, col)}`;
   if (card.type === 'CandyBucket') {
     newState = resolveCandyBucket(newState, tile, player.id, false);
+    logMsg += ' and collected candy from bucket';
   } else if (card.type === 'Item') {
     newState = resolveItemTile(newState, player.id);
+    logMsg += ' and drew item card';
   } else if (card.type === 'Monster') {
     newState = resolveMonster(newState, tile, player.id);
+    logMsg += ` and triggered ${card.monsterType ?? 'Monster'}`;
   } else if (card.type === 'Ender') {
+    newState = appendToTurnLog(newState, `${player.name} moved to ${formatTileLocation(row, col)} and triggered Ender`);
     newState = resolveEnder(newState);
     return newState;
   }
+  newState = appendToTurnLog(newState, logMsg);
 
   const players = newState.players;
   const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state.currentPlayerIndex, players);
@@ -409,6 +455,7 @@ export function playItem(
       if (target?.row !== undefined && target?.col !== undefined) {
         const tile = newState.board[target.row]?.[target.col];
         if (tile) {
+          newState = appendToTurnLog(newState, `${player.name} used Shortcut to ${formatTileLocation(target.row, target.col)}`);
           newState = {
             ...newState,
             players: newState.players.map((p, i) =>
@@ -425,6 +472,7 @@ export function playItem(
       if (target?.row !== undefined && target?.col !== undefined) {
         const tile = newState.board[target.row]?.[target.col];
         if (tile?.card?.type === 'CandyBucket' && tile.isFlipped) {
+          newState = appendToTurnLog(newState, `${player.name} used Naughty Kid on ${formatTileLocation(target.row, target.col)}`);
           const fromSupply = Math.min(GAME_RULES.naughtyKidBonusToken, newState.candySupply);
           players[playerIdx] = {
             ...players[playerIdx],
@@ -449,11 +497,10 @@ export function playItem(
       break;
 
     case 'Flashlight':
-      // Peek: handled in UI - we just consume the card for now
-      // Or remove monster - target tile
       if (target?.row !== undefined && target?.col !== undefined) {
         const tile = newState.board[target.row]?.[target.col];
         if (tile?.card?.type === 'Monster') {
+          newState = appendToTurnLog(newState, `${player.name} used Flashlight to remove monster at ${formatTileLocation(target.row, target.col)}`);
           newState = {
             ...newState,
             board: newState.board.map((r, ri) =>
@@ -465,9 +512,11 @@ export function playItem(
             message: `${player.name} used Flashlight to remove monster!`,
           };
         } else {
+          newState = appendToTurnLog(newState, `${player.name} used Flashlight (peek)`);
           newState = { ...newState, selectedAction: null, message: `${player.name} used Flashlight.` };
         }
       } else {
+        newState = appendToTurnLog(newState, `${player.name} used Flashlight (peek)`);
         newState = { ...newState, selectedAction: null, message: `${player.name} used Flashlight (peek).` };
       }
       break;
@@ -482,10 +531,12 @@ export function playItem(
 
 export function endTurn(state: GameState): GameState {
   if (state.gamePhase !== 'playing') return state;
-  const players = [...state.players];
+  const player = state.players[state.currentPlayerIndex];
+  const withLog = appendToTurnLog(state, `${player.name} ended turn`);
+  const players = [...withLog.players];
   const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state.currentPlayerIndex, players);
   return {
-    ...state,
+    ...withLog,
     players: updatedPlayers,
     currentPlayerIndex: nextIdx,
     selectedAction: null,

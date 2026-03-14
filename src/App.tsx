@@ -19,6 +19,7 @@ import {
 import { getBotAction } from './bots/botLogic';
 import { Board } from './components/Board';
 import { PlayerPanel } from './components/PlayerPanel';
+import { RoundEndSummary } from './components/RoundEndSummary';
 import type { ItemCard } from './game/types';
 import './App.css';
 
@@ -223,15 +224,14 @@ export default function App() {
 
   if (state.gamePhase === 'roundEnd') {
     return (
-      <div className="app round-end">
-        <h1>Neighborhood {state.roundNumber} Complete!</h1>
-        <p>{state.message}</p>
-        <button
-          type="button"
-          onClick={() => setState(startNextNeighborhood(state))}
-        >
-          {state.roundNumber + 1 >= 3 ? 'See Final Scores' : 'Next Neighborhood'}
-        </button>
+      <div className="app">
+        <header className="header">
+          <h1>Trick or Treat v0.5</h1>
+        </header>
+        <RoundEndSummary
+          state={state}
+          onContinue={() => setState(startNextNeighborhood(state))}
+        />
       </div>
     );
   }

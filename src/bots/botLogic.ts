@@ -5,12 +5,8 @@
  */
 
 import type { GameState, Player, ItemCard } from '../game/types';
-
-// Row/col to display format (A1, B2, etc.)
-function tileLabel(row: number, col: number): string {
-  const colLetter = String.fromCharCode(65 + col);
-  return `${colLetter}${row + 1}`;
-}
+import { formatTileLocation } from '../game/boardLabels';
+import { isOrthogonallyAdjacent } from '../game/movement';
 
 export type BotActionType = 'moveFlip' | 'moveResolve' | 'goHome' | 'playItem';
 
@@ -56,7 +52,7 @@ export function getBotAction(state: GameState, playerId: string): BotAction | nu
   if (bucketTarget) {
     return {
       type: 'moveResolve',
-      logMessage: `${player.name} moved to ${tileLabel(bucketTarget.row, bucketTarget.col)} and collected candy`,
+      logMessage: `${player.name} moved to ${formatTileLocation(bucketTarget.row, bucketTarget.col)} and collected candy`,
       targetTile: { row: bucketTarget.row, col: bucketTarget.col },
     };
   }
@@ -66,7 +62,7 @@ export function getBotAction(state: GameState, playerId: string): BotAction | nu
   if (flipTarget) {
     return {
       type: 'moveFlip',
-      logMessage: `${player.name} moved to ${tileLabel(flipTarget.row, flipTarget.col)} and flipped`,
+      logMessage: `${player.name} moved to ${formatTileLocation(flipTarget.row, flipTarget.col)} and flipped`,
       targetTile: { row: flipTarget.row, col: flipTarget.col },
     };
   }
@@ -76,7 +72,7 @@ export function getBotAction(state: GameState, playerId: string): BotAction | nu
   if (resolveTarget) {
     return {
       type: 'moveResolve',
-      logMessage: `${player.name} moved to ${tileLabel(resolveTarget.row, resolveTarget.col)}`,
+      logMessage: `${player.name} moved to ${formatTileLocation(resolveTarget.row, resolveTarget.col)}`,
       targetTile: { row: resolveTarget.row, col: resolveTarget.col },
     };
   }
@@ -107,7 +103,7 @@ function evaluateItemPlay(state: GameState, player: Player): BotAction | null {
       if (bucket) {
         return {
           type: 'playItem',
-          logMessage: `${player.name} used Naughty Kid on ${tileLabel(bucket.row, bucket.col)}`,
+          logMessage: `${player.name} used Naughty Kid on ${formatTileLocation(bucket.row, bucket.col)}`,
           item,
           targetTile: { row: bucket.row, col: bucket.col },
         };
@@ -118,7 +114,7 @@ function evaluateItemPlay(state: GameState, player: Player): BotAction | null {
       if (target) {
         return {
           type: 'playItem',
-          logMessage: `${player.name} used Shortcut to move to ${tileLabel(target.row, target.col)}`,
+          logMessage: `${player.name} used Shortcut to move to ${formatTileLocation(target.row, target.col)}`,
           item,
           targetTile: { row: target.row, col: target.col },
         };
@@ -129,7 +125,7 @@ function evaluateItemPlay(state: GameState, player: Player): BotAction | null {
       if (monsterTile) {
         return {
           type: 'playItem',
-          logMessage: `${player.name} used Flashlight to remove monster at ${tileLabel(monsterTile.row, monsterTile.col)}`,
+          logMessage: `${player.name} used Flashlight to remove monster at ${formatTileLocation(monsterTile.row, monsterTile.col)}`,
           item,
           targetTile: { row: monsterTile.row, col: monsterTile.col },
         };
@@ -158,6 +154,7 @@ function findBestCandyBucket(state: GameState, player: Player): { row: number; c
     for (let c = 0; c < state.board[r].length; c++) {
       const t = state.board[r][c];
       if (t.card?.type !== 'CandyBucket' || !t.isFlipped || t.isClosed || t.candyTokensOnTile === 0) continue;
+      if (pos !== null && !isOrthogonallyAdjacent(pos.row, pos.column, r, c)) continue;
       const visits = t.bucketVisits?.[player.id] ?? 0;
       if (visits >= 1) continue; // Already collected from this bucket
       const dist = pos ? Math.abs(pos.row - r) + Math.abs(pos.column - c) : 0;
@@ -176,6 +173,7 @@ function findBestFlipTarget(state: GameState, player: Player): { row: number; co
     for (let c = 0; c < state.board[r].length; c++) {
       const t = state.board[r][c];
       if (t.isFlipped || t.isClosed) continue;
+      if (pos !== null && !isOrthogonallyAdjacent(pos.row, pos.column, r, c)) continue;
       let score = 10;
       if (r >= 4) score -= 5; // Mansion row = Ender risk
       if (pos) {
@@ -191,10 +189,12 @@ function findBestFlipTarget(state: GameState, player: Player): { row: number; co
 }
 
 function findAnyRevealedTile(state: GameState, player: Player): { row: number; col: number } | null {
+  const pos = player.pawnPosition;
   for (let r = 0; r < state.board.length; r++) {
     for (let c = 0; c < state.board[r].length; c++) {
       const t = state.board[r][c];
       if (!t.isFlipped || t.isClosed) continue;
+      if (pos !== null && !isOrthogonallyAdjacent(pos.row, pos.column, r, c)) continue;
       if (t.card?.type === 'CandyBucket') {
         const visits = t.bucketVisits?.[player.id] ?? 0;
         if (visits < 1 && t.candyTokensOnTile > 0) return { row: r, col: c };
