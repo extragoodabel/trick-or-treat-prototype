@@ -173,13 +173,13 @@ const ITEM_TYPE_LABELS: Record<string, string> = {
 function resolveItemTile(
   state: GameState,
   playerId: string
-): { state: GameState; itemType: string } {
+): { state: GameState; itemType: string; itemTypeRaw: string } {
   const players = [...state.players];
   const playerIdx = players.findIndex((p) => p.id === playerId);
-  if (playerIdx === -1) return { state, itemType: 'Item' };
+  if (playerIdx === -1) return { state, itemType: 'Item', itemTypeRaw: 'Item' };
 
-  const itemType = ITEM_DECK[Math.floor(Math.random() * ITEM_DECK.length)];
-  const newCard = createItemCard(itemType);
+  const itemTypeRaw = ITEM_DECK[Math.floor(Math.random() * ITEM_DECK.length)];
+  const newCard = createItemCard(itemTypeRaw);
   players[playerIdx] = {
     ...players[playerIdx],
     itemCards: [...players[playerIdx].itemCards, newCard],
@@ -190,7 +190,8 @@ function resolveItemTile(
       players,
       message: `${players[playerIdx].name} drew an item card!`,
     },
-    itemType: ITEM_TYPE_LABELS[itemType] ?? itemType,
+    itemType: ITEM_TYPE_LABELS[itemTypeRaw] ?? itemTypeRaw,
+    itemTypeRaw,
   };
 }
 
@@ -321,7 +322,14 @@ function resolveEnder(state: GameState): GameState {
 // --- Actions ---
 
 function clearAffectedState(s: GameState): GameState {
-  return { ...s, lastAffectedPlayerIds: undefined, lastActionDescription: undefined };
+  return {
+    ...s,
+    lastAffectedPlayerIds: undefined,
+    lastActionDescription: undefined,
+    lastMoveForAnimation: undefined,
+    lastRevealedItem: undefined,
+    lastRevealedCandy: undefined,
+  };
 }
 
 export function selectAction(
@@ -412,8 +420,15 @@ export function move(state: GameState, row: number, col: number): GameState {
   const tile = state.board[row]?.[col];
   if (!tile || tile.isClosed) return state;
 
+  // Mansion Row (row 4) is always reachable when orthogonally adjacent - no special restriction
   const pos = player.pawnPosition;
-  if (pos !== null && !isOrthogonallyAdjacent(pos.row, pos.column, row, col)) {
+  if (pos === null) return state;
+
+  const isSameTile = pos.row === row && pos.column === col;
+  const isAdjacent = isOrthogonallyAdjacent(pos.row, pos.column, row, col);
+
+  // Allow: adjacent move, OR flip of current tile (without moving) when face-down
+  if (!isAdjacent && !(isSameTile && !tile.isFlipped)) {
     return {
       ...state,
       message: 'Movement must be to an adjacent house (up, down, left, or right).',
@@ -421,6 +436,14 @@ export function move(state: GameState, row: number, col: number): GameState {
   }
 
   const isFlip = !tile.isFlipped;
+
+  // Only update pawn position when actually moving (not when flipping current tile)
+  const playersUpdate =
+    isSameTile && isFlip
+      ? state.players // Stay on same tile
+      : state.players.map((p, i) =>
+          i === state.currentPlayerIndex ? { ...p, pawnPosition: { row, column: col } } : p
+        );
 
   let newState: GameState = {
     ...state,
@@ -431,9 +454,7 @@ export function move(state: GameState, row: number, col: number): GameState {
           )
         )
       : state.board,
-    players: state.players.map((p, i) =>
-      i === state.currentPlayerIndex ? { ...p, pawnPosition: { row, column: col } } : p
-    ),
+    players: playersUpdate,
     selectedAction: null,
   };
 
@@ -442,30 +463,37 @@ export function move(state: GameState, row: number, col: number): GameState {
 
   const location = formatTileLocation(row, col);
 
+  let candyCollected = 0;
   if (card.type === 'CandyBucket') {
+    const candyBefore = newState.players[state.currentPlayerIndex].candyTokens;
     if (isFlip) {
       newState = resolveCandyBucket(newState, { ...tile, isFlipped: true }, player.id, true);
-      newState = appendToTurnLog(newState, `${player.name} moved to ${location} and flipped Candy Bucket`);
+      newState = appendToTurnLog(newState, isSameTile ? `${player.name} flipped Candy Bucket at ${location}` : `${player.name} moved to ${location} and flipped Candy Bucket`);
     } else {
       newState = resolveCandyBucket(newState, tile, player.id, false);
       newState = appendToTurnLog(newState, `${player.name} moved to ${location} and collected candy from bucket`);
     }
+    candyCollected = newState.players[state.currentPlayerIndex].candyTokens - candyBefore;
   } else if (card.type === 'Item') {
-    const { state: itemState, itemType } = resolveItemTile(newState, player.id);
+    const { state: itemState, itemType, itemTypeRaw } = resolveItemTile(newState, player.id);
     newState = itemState;
     newState = appendToTurnLog(
       newState,
       isFlip
-        ? `${player.name} moved to ${location} and flipped ${itemType}`
+        ? (isSameTile ? `${player.name} flipped ${itemType} at ${location}` : `${player.name} moved to ${location} and flipped ${itemType}`)
         : `${player.name} moved to ${location} and drew ${itemType}`
     );
+    if (isFlip) {
+      (newState as GameState & { _itemType?: string; _itemTypeRaw?: string })._itemType = itemType;
+      (newState as GameState & { _itemType?: string; _itemTypeRaw?: string })._itemTypeRaw = itemTypeRaw;
+    }
   } else if (card.type === 'Monster') {
     newState = resolveMonster(newState, { ...tile, isFlipped: true }, player.id);
     const monsterName = card.monsterType ?? 'Monster';
     newState = appendToTurnLog(
       newState,
       isFlip
-        ? `${player.name} moved to ${location} and flipped ${monsterName}`
+        ? (isSameTile ? `${player.name} flipped ${monsterName} at ${location}` : `${player.name} moved to ${location} and flipped ${monsterName}`)
         : `${player.name} moved to ${location} and triggered ${monsterName}`
     );
   } else if (card.type === 'Ender') {
@@ -476,12 +504,29 @@ export function move(state: GameState, row: number, col: number): GameState {
 
   const players = newState.players;
   const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state.currentPlayerIndex, players);
-  return {
-    ...newState,
+
+  const revealedItemType = (newState as GameState & { _itemType?: string })._itemType;
+  const revealedItemTypeRaw = (newState as GameState & { _itemTypeRaw?: string })._itemTypeRaw;
+  const { _itemType: _unused, _itemTypeRaw: _unusedRaw, ...cleanState } = newState as GameState & { _itemType?: string; _itemTypeRaw?: string };
+
+  // Set movement animation (only for actual moves, not flip-in-place)
+  let finalState: GameState = {
+    ...cleanState,
     players: updatedPlayers,
     currentPlayerIndex: nextIdx,
     message: `${updatedPlayers[nextIdx].name}'s turn.`,
   };
+  if (!(isSameTile && isFlip)) {
+    finalState = { ...finalState, lastMoveForAnimation: { from: { row: pos.row, col: pos.column }, to: { row, col }, playerIndex: state.currentPlayerIndex } };
+  }
+  if (card.type === 'Item' && isFlip && revealedItemType && revealedItemTypeRaw) {
+    finalState = { ...finalState, lastRevealedItem: { row, col, itemType: revealedItemTypeRaw, playerIndex: state.currentPlayerIndex } };
+  }
+  if (candyCollected > 0) {
+    finalState = { ...finalState, lastRevealedCandy: { row, col, playerIndex: state.currentPlayerIndex, amount: candyCollected } };
+  }
+
+  return finalState;
 }
 
 // --- Item plays ---
@@ -630,6 +675,13 @@ export function startNextNeighborhood(state: GameState): GameState {
 export function devRevealAll(state: GameState): GameState {
   const board = state.board.map((row) =>
     row.map((t) => ({ ...t, isFlipped: true }))
+  );
+  return { ...state, board };
+}
+
+export function devHideAllTiles(state: GameState): GameState {
+  const board = state.board.map((row) =>
+    row.map((t) => ({ ...t, isFlipped: false }))
   );
   return { ...state, board };
 }

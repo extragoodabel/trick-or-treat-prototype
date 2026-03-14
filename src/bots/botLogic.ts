@@ -60,8 +60,16 @@ function scoreMove(
   if (!tile || tile.isClosed) return -10;
 
   const pos = player.pawnPosition;
-  if (pos !== null && !isOrthogonallyAdjacent(pos.row, pos.column, targetRow, targetCol)) {
+  const isSameTile = pos !== null && pos.row === targetRow && pos.column === targetCol;
+  const isAdjacent = pos === null || isOrthogonallyAdjacent(pos.row, pos.column, targetRow, targetCol);
+
+  if (!isAdjacent && !(isSameTile && !tile.isFlipped)) {
     return -10;
+  }
+
+  // Flip-in-place (starting tile): treat as productive
+  if (isSameTile && !tile.isFlipped) {
+    return 10; // Same as flipping an unflipped tile
   }
 
   // Avoid immediate backtracking (strong penalty)

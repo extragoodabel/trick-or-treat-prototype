@@ -2,10 +2,46 @@
   box-sizing: border-box;
 }
 
-body {
+:root {
+  /* Halloween color palette */
+  --halloween-deep-purple: #2d1b4e;
+  --halloween-midnight: #1a0f2e;
+  --halloween-night-sky: #0d0618;
+  --halloween-pumpkin: #e85d04;
+  --halloween-pumpkin-light: #f48c06;
+  --halloween-lantern: #ffc300;
+  --halloween-lantern-glow: #ffdd57;
+  --halloween-autumn-brown: #6b4423;
+  --halloween-muted-brown: #8b7355;
+  --halloween-fog: rgba(139, 92, 246, 0.08);
+  --halloween-mansion-glow: #7c3aed;
+  --halloween-mansion-dark: #3b1f5c;
+  --halloween-house-dark: #1f1029;
+  --halloween-house-light: #3d2a52;
+  --halloween-porch-off: #2a1a3d;
+  --halloween-porch-on: #4a2c6a;
+  --halloween-parchment: #2d2416;
+  --halloween-parchment-text: #e8dcc4;
+  --halloween-success: #22c55e;
+  --halloween-warning: #f59e0b;
+}
+
+html, body {
   margin: 0;
-  font-family: system-ui, -apple-system, sans-serif;
-  background: #1a1a2e;
-  color: #eee;
-  min-height: 100vh;
+  height: 100%;
+}
+
+body {
+  font-family: 'Nunito', 'Quicksand', system-ui, sans-serif;
+  background: 
+    radial-gradient(ellipse at 50% 0%, rgba(124, 58, 237, 0.12) 0%, transparent 50%),
+    radial-gradient(2px 2px at 20px 30px, rgba(255, 255, 255, 0.3), transparent),
+    radial-gradient(2px 2px at 40px 70px, rgba(255, 255, 255, 0.2), transparent),
+    radial-gradient(2px 2px at 50px 160px, rgba(255, 255, 255, 0.25), transparent),
+    radial-gradient(2px 2px at 90px 40px, rgba(255, 255, 255, 0.2), transparent),
+    radial-gradient(2px 2px at 130px 80px, rgba(255, 255, 255, 0.3), transparent),
+    linear-gradient(180deg, var(--halloween-midnight) 0%, var(--halloween-night-sky) 50%, var(--halloween-deep-purple) 100%);
+  background-attachment: fixed;
+  color: #e8dcc4;
+  min-height: 100%;
 }

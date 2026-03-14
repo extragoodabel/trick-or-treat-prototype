@@ -11,6 +11,7 @@ import {
   selectStartingPosition,
   appendToTurnLog,
   devRevealAll,
+  devHideAllTiles,
   devAddCandy,
   devSkipToMansion,
   devRestartNeighborhood,
@@ -20,7 +21,10 @@ import { getBotAction, getBotStartingPosition, type BotMoveHistory } from './bot
 import { Board } from './components/Board';
 import { PlayerPanel } from './components/PlayerPanel';
 import { RoundEndSummary } from './components/RoundEndSummary';
+import { RulesModal } from './components/RulesModal';
+import { CollectibleFlyAnimation } from './components/CollectibleFlyAnimation';
 import type { ItemCard } from './game/types';
+import { formatTurnLogWithIcons } from './utils/formatTurnLog';
 import './App.css';
 
 const PLAYER_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12'];
@@ -37,8 +41,31 @@ export default function App() {
   const [showAllHands, setShowAllHands] = useState(false);
   const [showDevTools, setShowDevTools] = useState(false);
   const [pendingItem, setPendingItem] = useState<ItemCard | null>(null);
+  const [showRules, setShowRules] = useState(false);
   const botTurnTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const botLastMoveFromRef = useRef<Record<string, BotMoveHistory>>({});
+  const animationClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear movement/item/candy animation state after display
+  useEffect(() => {
+    if (!state) return;
+    const hasAnimation = state.lastMoveForAnimation || state.lastRevealedItem || state.lastRevealedCandy;
+    if (hasAnimation) {
+      if (animationClearRef.current) clearTimeout(animationClearRef.current);
+      // Move: 400ms, item/candy fly: ~700ms (200ms pop + 500ms fly)
+      const clearDelay = 1200;
+      animationClearRef.current = setTimeout(() => {
+        setState((s) => {
+          if (!s || (!s.lastMoveForAnimation && !s.lastRevealedItem && !s.lastRevealedCandy)) return s;
+          const { lastMoveForAnimation, lastRevealedItem, lastRevealedCandy, ...rest } = s;
+          return rest as GameState;
+        });
+      }, clearDelay);
+    }
+    return () => {
+      if (animationClearRef.current) clearTimeout(animationClearRef.current);
+    };
+  }, [state?.lastMoveForAnimation, state?.lastRevealedItem, state?.lastRevealedCandy]);
 
   const startGame = useCallback(() => {
     const gameState = createNewGame(playerCount, costumes as string[], controllerTypes);
@@ -152,7 +179,12 @@ export default function App() {
   if (!state) {
     return (
       <div className="app setup-screen">
-        <h1>Trick or Treat v0.5</h1>
+        <header className="setup-header">
+          <h1>Trick or Treat v0.5</h1>
+          <button type="button" className="rules-btn" onClick={() => setShowRules(true)}>
+            Rules
+          </button>
+        </header>
         <div className="setup-form">
           <label>
             Players: {playerCount}
@@ -231,6 +263,7 @@ export default function App() {
             Start Game
           </button>
         </div>
+        {showRules && <RulesModal onClose={() => setShowRules(false)} />}
       </div>
     );
   }
@@ -239,7 +272,12 @@ export default function App() {
     const scores = getFinalScores(state);
     return (
       <div className="app game-over">
-        <h1>Game Over!</h1>
+        <header className="game-over-header">
+          <h1>Game Over!</h1>
+          <button type="button" className="rules-btn" onClick={() => setShowRules(true)}>
+            Rules
+          </button>
+        </header>
         <div className="scores">
           {scores.map((s, i) => (
             <div key={s.playerId} className="score-row">
@@ -250,6 +288,7 @@ export default function App() {
         <button type="button" onClick={() => setState(null)}>
           New Game
         </button>
+        {showRules && <RulesModal onClose={() => setShowRules(false)} />}
       </div>
     );
   }
@@ -258,56 +297,76 @@ export default function App() {
     const choosingPlayer = state.players[state.currentPlayerIndex];
     const isHumanChoosing = choosingPlayer.controllerType === 'human';
     return (
-      <div className="app">
-        <header className="header">
-          <h1>Trick or Treat v0.5</h1>
+      <div className="app app--game-view">
+        <header className="app-header">
+          <h1 className="app-title">Trick or Treat v0.5</h1>
           <p className="round-info">
             Neighborhood {state.roundNumber + 1}/3 • Choose starting houses
           </p>
+          <button type="button" className="rules-btn" onClick={() => setShowRules(true)}>
+            Rules
+          </button>
           <p className="message">
             {isHumanChoosing
               ? `${choosingPlayer.name}, click a house in the first row to start`
               : `${choosingPlayer.name} is choosing...`}
           </p>
         </header>
-        <div className="game-layout">
-          <div className="player-panels">
-            {state.players.map((player, i) => (
-              <PlayerPanel
-                key={player.id}
-                player={player}
-                isCurrent={player.id === choosingPlayer.id}
-                color={PLAYER_COLORS[i]}
-                showHand={showAllHands || player.controllerType === 'human'}
-                isAffected={false}
-              />
-            ))}
-          </div>
-          <div className="board-area">
-            <Board
-              state={state}
-              onTileClick={handleTileClick}
-              devRevealAll={devRevealAllTiles}
-            />
-          </div>
-        </div>
-        <div className="dev-tools">
-          <button type="button" onClick={() => setShowDevTools(!showDevTools)} className="dev-toggle">
-            {showDevTools ? 'Hide' : 'Show'} Dev Tools
-          </button>
-          {showDevTools && (
-            <div className="dev-panel">
-              <label className="dev-toggle-label">
-                <input
-                  type="checkbox"
-                  checked={showAllHands}
-                  onChange={(e) => setShowAllHands(e.target.checked)}
-                />
-                Show All Hands
-              </label>
+        <div className="app-main">
+          <aside className="sidebar-left">
+            <div className="turn-log">
+              <h3>Turn Log</h3>
+              <ul />
             </div>
-          )}
+            <div className="player-panels">
+              {state.players.map((player, i) => (
+                <PlayerPanel
+                  key={player.id}
+                  player={player}
+                  playerIndex={i}
+                  isCurrent={player.id === choosingPlayer.id}
+                  color={PLAYER_COLORS[i]}
+                  showHand={showAllHands || player.controllerType === 'human'}
+                  isAffected={false}
+                />
+              ))}
+            </div>
+            <div className="dev-tools">
+              <button type="button" onClick={() => setShowDevTools(!showDevTools)} className="dev-toggle">
+                {showDevTools ? 'Hide' : 'Show'} Dev Tools
+              </button>
+              {showDevTools && (
+                <div className="dev-panel">
+                  <label className="dev-toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={showAllHands}
+                      onChange={(e) => setShowAllHands(e.target.checked)}
+                    />
+                    Show All Hands
+                  </label>
+                </div>
+              )}
+            </div>
+          </aside>
+          <main className="board-main">
+            <div className="board-and-controls">
+              <div className="board-area">
+                <div className="neighborhood-board">
+                  <div className="neighborhood-decor neighborhood-pumpkins" aria-hidden="true">🎃</div>
+                  <div className="neighborhood-decor neighborhood-bats" aria-hidden="true">🦇</div>
+                  <Board
+                    state={state}
+                    onTileClick={handleTileClick}
+                    devRevealAll={devRevealAllTiles}
+                    playerColors={PLAYER_COLORS}
+                  />
+                </div>
+              </div>
+            </div>
+          </main>
         </div>
+        {showRules && <RulesModal onClose={() => setShowRules(false)} />}
       </div>
     );
   }
@@ -315,8 +374,11 @@ export default function App() {
   if (state.gamePhase === 'roundEnd') {
     return (
       <div className="app">
-        <header className="header">
+        <header className="header header--with-rules">
           <h1>Trick or Treat v0.5</h1>
+          <button type="button" className="rules-btn" onClick={() => setShowRules(true)}>
+            Rules
+          </button>
         </header>
         <RoundEndSummary
           state={state}
@@ -325,6 +387,7 @@ export default function App() {
             setState(startNextNeighborhood(state));
           }}
         />
+        {showRules && <RulesModal onClose={() => setShowRules(false)} />}
       </div>
     );
   }
@@ -334,137 +397,158 @@ export default function App() {
   const canAct = isHumanTurn && !currentPlayer.isHome && !currentPlayer.skipNextTurn;
 
   return (
-    <div className="app">
-      <header className="header">
-        <h1>Trick or Treat v0.5</h1>
+    <div className="app app--game-view">
+      <header className="app-header">
+        <h1 className="app-title">Trick or Treat v0.5</h1>
         <p className="round-info">
-          Neighborhood {state.roundNumber + 1}/3 • Candy supply: {state.candySupply}
+          Neighborhood {state.roundNumber + 1}/3 • Candy: {state.candySupply}
         </p>
+        <button type="button" className="rules-btn" onClick={() => setShowRules(true)}>
+          Rules
+        </button>
         <p className="message">{state.message}</p>
       </header>
 
-      {state.turnLog.length > 0 && (
-        <div className="turn-log">
-          <h3>Turn Log</h3>
-          {state.lastActionDescription && state.lastAffectedPlayerIds && state.lastAffectedPlayerIds.length > 0 && (
-            <p className="turn-log-affected">{state.lastActionDescription}</p>
-          )}
-          <ul>
-            {state.turnLog.slice(-12).map((msg, i) => (
-              <li key={i}>{msg}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="game-layout">
-        <div className="player-panels">
-          {state.players.map((player, i) => (
-            <PlayerPanel
-              key={player.id}
-              player={player}
-              isCurrent={player.id === currentPlayer.id}
-              color={PLAYER_COLORS[i]}
-              onPlayItem={handlePlayItem}
-              canPlayItem={
-                canAct &&
-                state.selectedAction === 'playItem' &&
-                player.id === currentPlayer.id
-              }
-              showHand={showAllHands || player.controllerType === 'human'}
-              isAffected={state.lastAffectedPlayerIds?.includes(player.id) ?? false}
-            />
-          ))}
-        </div>
-
-        <div className="board-area">
-          <Board
-            state={state}
-            onTileClick={handleTileClick}
-            devRevealAll={devRevealAllTiles}
-          />
-        </div>
-      </div>
-
-      <div className="controls">
-        {canAct && (
-          <>
-            <button
-              type="button"
-              onClick={() => setState(selectAction(state, 'move'))}
-              className={state.selectedAction === 'move' ? 'active' : ''}
-            >
-              Move
-            </button>
-            <button type="button" onClick={() => setState(goHome(state))}>
-              Go Home
-            </button>
-            <button
-              type="button"
-              onClick={() => setState(selectAction(state, 'playItem'))}
-              className={state.selectedAction === 'playItem' ? 'active' : ''}
-            >
-              Play Item
-            </button>
-            <button type="button" onClick={() => setState(endTurn(state))}>
-              End Turn
-            </button>
-          </>
-        )}
-        {pendingItem && (
-          <span className="pending-hint">Choose tile for {pendingItem.type}</span>
-        )}
-      </div>
-
-      <div className="dev-tools">
-        <button
-          type="button"
-          onClick={() => setShowDevTools(!showDevTools)}
-          className="dev-toggle"
-        >
-          {showDevTools ? 'Hide' : 'Show'} Dev Tools
-        </button>
-        {showDevTools && (
-          <div className="dev-panel">
-            <label className="dev-toggle-label">
-              <input
-                type="checkbox"
-                checked={showAllHands}
-                onChange={(e) => setShowAllHands(e.target.checked)}
-              />
-              Show All Hands
-            </label>
-            <button
-              type="button"
-              onClick={() => {
-                setDevRevealAllTiles(!devRevealAllTiles);
-                if (!devRevealAllTiles) setState(devRevealAll(state));
-              }}
-            >
-              {devRevealAllTiles ? 'Hide' : 'Reveal'} All Tiles
-            </button>
-            {state.players.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setState(devAddCandy(state, p.id, 5))}
-              >
-                +5 candy to {p.name}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setState(devSkipToMansion(state))}
-            >
-              Skip to Mansion Row
-            </button>
-            <button
-              type="button"
-              onClick={() => setState(devRestartNeighborhood(state))}
-            >
-              Restart Neighborhood
-            </button>
+      <div className="app-main">
+        <aside className="sidebar-left">
+          <div className="turn-log">
+            <h3>Turn Log</h3>
+            {state.lastActionDescription && state.lastAffectedPlayerIds && state.lastAffectedPlayerIds.length > 0 && (
+              <p className="turn-log-affected">{state.lastActionDescription}</p>
+            )}
+            <ul>
+              {state.turnLog.slice(-12).map((msg, i) => (
+                <li key={i}>{formatTurnLogWithIcons(msg)}</li>
+              ))}
+            </ul>
           </div>
+          <div className="player-panels">
+            {state.players.map((player, i) => (
+              <PlayerPanel
+                key={player.id}
+                player={player}
+                playerIndex={i}
+                isCurrent={player.id === currentPlayer.id}
+                color={PLAYER_COLORS[i]}
+                onPlayItem={handlePlayItem}
+                canPlayItem={
+                  canAct &&
+                  state.selectedAction === 'playItem' &&
+                  player.id === currentPlayer.id
+                }
+                showHand={showAllHands || player.controllerType === 'human'}
+                isAffected={state.lastAffectedPlayerIds?.includes(player.id) ?? false}
+              />
+            ))}
+          </div>
+          <div className="dev-tools">
+            <button
+              type="button"
+              onClick={() => setShowDevTools(!showDevTools)}
+              className="dev-toggle"
+            >
+              {showDevTools ? 'Hide' : 'Show'} Dev Tools
+            </button>
+            {showDevTools && (
+              <div className="dev-panel">
+                <label className="dev-toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={showAllHands}
+                    onChange={(e) => setShowAllHands(e.target.checked)}
+                  />
+                  Show All Hands
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (devRevealAllTiles) {
+                      setState(devHideAllTiles(state));
+                    } else {
+                      setState(devRevealAll(state));
+                    }
+                    setDevRevealAllTiles(!devRevealAllTiles);
+                  }}
+                >
+                  {devRevealAllTiles ? 'Hide' : 'Reveal'} All Tiles
+                </button>
+                {state.players.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setState(devAddCandy(state, p.id, 5))}
+                  >
+                    +5 candy to {p.name}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setState(devSkipToMansion(state))}
+                >
+                  Skip to Mansion Row
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setState(devRestartNeighborhood(state))}
+                >
+                  Restart Neighborhood
+                </button>
+              </div>
+            )}
+          </div>
+        </aside>
+
+        <main className="board-main">
+          <div className="board-and-controls">
+            <div className="board-area">
+              <div className="neighborhood-board">
+                <div className="neighborhood-decor neighborhood-pumpkins" aria-hidden="true">🎃</div>
+                <div className="neighborhood-decor neighborhood-bats" aria-hidden="true">🦇</div>
+                <Board
+                  state={state}
+                  onTileClick={handleTileClick}
+                  devRevealAll={devRevealAllTiles}
+                  playerColors={PLAYER_COLORS}
+                />
+              </div>
+            </div>
+            <div className="controls">
+              {canAct && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setState(selectAction(state, 'move'))}
+                    className={state.selectedAction === 'move' ? 'active' : ''}
+                  >
+                    Move
+                  </button>
+                  <button type="button" onClick={() => setState(goHome(state))}>
+                    Go Home
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setState(selectAction(state, 'playItem'))}
+                    className={state.selectedAction === 'playItem' ? 'active' : ''}
+                  >
+                    Play Item
+                  </button>
+                  <button type="button" onClick={() => setState(endTurn(state))}>
+                    End Turn
+                  </button>
+                </>
+              )}
+              {pendingItem && (
+                <span className="pending-hint">Choose tile for {pendingItem.type}</span>
+              )}
+            </div>
+          </div>
+        </main>
+        {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+        {(state.lastRevealedItem || state.lastRevealedCandy) && (
+          <CollectibleFlyAnimation
+            lastRevealedItem={state.lastRevealedItem ?? null}
+            lastRevealedCandy={state.lastRevealedCandy ?? null}
+          />
         )}
       </div>
     </div>

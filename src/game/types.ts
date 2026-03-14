@@ -89,4 +89,10 @@ export interface GameState {
   lastAffectedPlayerIds?: string[];
   /** For UI feedback: short description of what happened to affected players */
   lastActionDescription?: string;
+  /** For movement arrow animation: from/to/playerIndex (App looks up color) */
+  lastMoveForAnimation?: { from: { row: number; col: number }; to: { row: number; col: number }; playerIndex: number };
+  /** For item reveal: show item on tile, then fly to player inventory */
+  lastRevealedItem?: { row: number; col: number; itemType: string; playerIndex: number };
+  /** For candy collection: fly candy to player panel */
+  lastRevealedCandy?: { row: number; col: number; playerIndex: number; amount: number };
 }
