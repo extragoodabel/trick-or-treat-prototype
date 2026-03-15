@@ -134,6 +134,9 @@ export function setupNewNeighborhood(
   }));
 
   const gamePhase = devSkipToMansion ? 'playing' : 'chooseStartingPosition';
+  const tileOccupancyOrder: Record<string, string[]> = devSkipToMansion
+    ? { '4,0': players.map((p) => p.id) }
+    : {};
   const message =
     gamePhase === 'chooseStartingPosition'
       ? `${players[0].name}, choose your starting house (first row)`
@@ -161,5 +164,6 @@ export function setupNewNeighborhood(
     message,
     lastAffectedPlayerIds: undefined,
     lastActionDescription: undefined,
+    tileOccupancyOrder,
   };
 }

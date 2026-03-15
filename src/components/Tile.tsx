@@ -80,8 +80,15 @@ export function TileComponent({
   const isCandyBucket = showCard && card?.type === 'CandyBucket';
   const isMonster = showCard && card?.type === 'Monster';
   const hasPawn = playersOnTile.length > 0;
-  const playerColor = playersOnTile[0]?.color ?? '#fff';
+  const playerColor = playersOnTile[playersOnTile.length - 1]?.color ?? playersOnTile[0]?.color ?? '#fff';
   const hidePawnForMove = !!movingPawn;
+  // Multi-ring: first arrival = innermost (largest inset), last = outermost (smallest inset)
+  const pawnInsetRings =
+    playersOnTile.length > 1
+      ? playersOnTile
+          .map((p, i) => `inset 0 0 0 ${2 + (playersOnTile.length - 1 - i) * 2}px ${p.color}`)
+          .join(', ')
+      : undefined;
 
   let content = '';
   const showSpiderWeb = tile.isSpent || (card?.type === 'Item' && tile.itemCollected && !isAnimatingItemReveal);
@@ -142,7 +149,11 @@ export function TileComponent({
       disabled={tile.isClosed}
       style={
         hasPawn || isCurrentPlayerTile || isValidMove || isSelectableForStart || isMoveDestination
-          ? { '--tile-accent-color': tileColor, '--pawn-color': playerColor } as React.CSSProperties
+          ? {
+              '--tile-accent-color': tileColor,
+              '--pawn-color': playerColor,
+              ...(pawnInsetRings && { '--pawn-inset-rings': pawnInsetRings }),
+            } as React.CSSProperties
           : undefined
       }
     >

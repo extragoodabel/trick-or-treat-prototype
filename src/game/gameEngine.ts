@@ -36,6 +36,28 @@ export function createNewGame(config: GameConfig): GameState {
   return setupNewNeighborhood(baseState);
 }
 
+/** Update tile occupancy order when a player moves from one tile to another. */
+function updateTileOccupancy(
+  state: GameState,
+  from: { row: number; col: number } | null,
+  to: { row: number; col: number },
+  playerId: string
+): GameState {
+  const order = { ...(state.tileOccupancyOrder ?? {}) };
+  const fromKey = from ? `${from.row},${from.col}` : null;
+  const toKey = `${to.row},${to.col}`;
+  if (fromKey) {
+    const fromList = (order[fromKey] ?? []).filter((id) => id !== playerId);
+    if (fromList.length > 0) order[fromKey] = fromList;
+    else delete order[fromKey];
+  }
+  const toList = order[toKey] ?? [];
+  if (!toList.includes(playerId)) {
+    order[toKey] = [...toList, playerId];
+  }
+  return { ...state, tileOccupancyOrder: order };
+}
+
 /** Append a message to the turn log. Used by UI when logging bot/human actions. */
 export function appendToTurnLog(state: GameState, message: string): GameState {
   return {
@@ -61,16 +83,18 @@ export function selectStartingPosition(
   );
   if (occupied) return state;
 
+  const player = state.players[state.currentPlayerIndex];
   const players = state.players.map((p, i) =>
     i === state.currentPlayerIndex ? { ...p, pawnPosition: { row, column: col } } : p
   );
+  let nextState: GameState = { ...state, players };
+  nextState = updateTileOccupancy(nextState, null, { row, col }, player.id);
 
   const nextIndex = state.currentPlayerIndex + 1;
   const allChosen = nextIndex >= players.length;
 
   return {
-    ...state,
-    players,
+    ...nextState,
     currentPlayerIndex: allChosen ? 0 : nextIndex,
     gamePhase: allChosen ? 'playing' : 'chooseStartingPosition',
     message: allChosen
@@ -576,6 +600,14 @@ export function move(state: GameState, row: number, col: number): GameState {
     players: playersUpdate,
     selectedAction: null,
   };
+  if (!(isSameTile && isFlip)) {
+    newState = updateTileOccupancy(
+      newState,
+      { row: pos.row, col: pos.column },
+      { row, col },
+      player.id
+    );
+  }
 
   const card = tile.card;
   if (!card) return newState;
@@ -709,6 +741,15 @@ export function playItem(
             selectedAction: null,
             message: `${player.name} used Shortcut!`,
           };
+          const from = player.pawnPosition;
+          if (from) {
+            newState = updateTileOccupancy(
+              newState,
+              { row: from.row, col: from.column },
+              { row: target.row!, col: target.col! },
+              player.id
+            );
+          }
         }
       }
       break;

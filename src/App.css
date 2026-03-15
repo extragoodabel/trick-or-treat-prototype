@@ -1557,9 +1557,12 @@
   opacity: 1;
 }
 
+/* Valid move to occupied tile: outer = current player, inner = occupant(s) in arrival order */
 .tile.valid-move.has-pawn {
   border-color: var(--tile-accent-color, var(--halloween-lantern));
-  box-shadow: 0 0 10px var(--tile-accent-color, var(--halloween-lantern));
+  box-shadow:
+    var(--pawn-inset-rings, inset 0 0 0 2px var(--pawn-color, var(--halloween-lantern))),
+    0 0 10px var(--tile-accent-color, var(--halloween-lantern));
 }
 
 .tile.valid-move:hover:not(:disabled) {
@@ -1633,7 +1636,11 @@
   box-shadow: 0 0 22px rgba(124, 58, 237, 0.55);
 }
 
-/* Occupied tile: keep neutral outline; only current-player-tile and valid-move get colored outline */
+/* Occupied tile: show occupant color(s) - multi-ring when multiple players (first arrival = innermost) */
+.tile.has-pawn:not(.valid-move):not(.current-player-tile) {
+  border-color: var(--pawn-color, var(--halloween-lantern));
+  box-shadow: var(--pawn-inset-rings, none), 0 0 12px var(--pawn-color, var(--halloween-lantern));
+}
 
 .tile.pawn-moving .tile-pawns {
   display: none;

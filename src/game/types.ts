@@ -124,6 +124,8 @@ export interface GameState {
   lastRevealedCandy?: { row: number; col: number; playerIndex: number; amount: number };
   /** Ender was triggered - show "You barely escaped" overlay before round results */
   lastEnderReveal?: boolean;
+  /** Tile occupancy order: "row,col" -> player IDs in arrival order (first = innermost ring) */
+  tileOccupancyOrder?: Record<string, string[]>;
   /** Flashlight reveal phase: beam → flip → resolve */
   flashlightReveal?: {
     row: number;

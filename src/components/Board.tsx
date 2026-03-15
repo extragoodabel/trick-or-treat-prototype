@@ -82,9 +82,16 @@ export function Board({ state, onTileClick, devRevealAll, playerColors = PLAYER_
       {state.board.map((row, r) =>
         row.map((tile, c) => {
           const { selectable, isCurrentPlayerTile, isItemTarget } = getTileState(r, c);
-          const playersOnTile: { player: Player; colorIndex: number }[] = state.players
+          const tileKey = `${r},${c}`;
+          const occupancyOrder = state.tileOccupancyOrder?.[tileKey];
+          const playersOnTileRaw: { player: Player; colorIndex: number }[] = state.players
             .map((p, i) => (p.pawnPosition?.row === r && p.pawnPosition?.column === c ? { player: p, colorIndex: i } : null))
             .filter((x): x is { player: Player; colorIndex: number } => x !== null);
+          const playersOnTile = occupancyOrder?.length
+            ? [...occupancyOrder]
+                .map((id) => playersOnTileRaw.find((x) => x.player.id === id))
+                .filter((x): x is { player: Player; colorIndex: number } => x != null)
+            : playersOnTileRaw;
           const isMansionRow = r === 4;
           const isFirstMansionTile = isMansionRow && c === 0;
           const isHouseOnHill = r === 5 && tile.card?.type === 'HouseOnHill';
