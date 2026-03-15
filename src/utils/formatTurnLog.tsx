@@ -14,6 +14,14 @@ const REPLACEMENTS: [RegExp, string][] = [
   [/\bcollected candy\b/g, 'collected 🍬 candy'],
   [/\bGot (\d+) candy\b/g, 'Got 🍬 $1 candy'],
   [/\bcandy\b/g, '🍬 candy'],
+  [/\bGhost\b/g, '👻 Ghost'],
+  [/\bZombie\b/g, '🧟 Zombie'],
+  [/\bWitch\b/g, '🧙‍♀️ Witch'],
+  [/\bSkeleton\b/g, '💀 Skeleton'],
+  [/\bWerewolf\b/g, '🐺 Werewolf'],
+  [/\bGoblin\b/g, '👺 Goblin'],
+  [/\bEnder\b/g, '🏚️ Ender'],
+  [/\bwent home\b/g, 'went 🏠 home'],
 ];
 
 /**

@@ -89,6 +89,14 @@ export interface GameState {
   lastAffectedPlayerIds?: string[];
   /** For UI feedback: short description of what happened to affected players */
   lastActionDescription?: string;
+  /** Full consequence message for top banner (e.g. "Witch Bot swapped hands with Player 1") */
+  lastConsequenceMessage?: string;
+  /** For Witch swap animation: player indices involved */
+  lastWitchSwap?: { fromPlayerIndex: number; toPlayerIndex: number };
+  /** For Goblin theft animation: from/to player indices and item type */
+  lastGoblinTheft?: { fromPlayerIndex: number; toPlayerIndex: number; itemType: string };
+  /** For candy delta floating indicators: player index and amount (positive = gain, negative = loss) */
+  lastCandyDeltas?: { playerIndex: number; delta: number }[];
   /** For movement arrow animation: from/to/playerIndex (App looks up color) */
   lastMoveForAnimation?: { from: { row: number; col: number }; to: { row: number; col: number }; playerIndex: number };
   /** For item reveal: show item on tile, then fly to player inventory */

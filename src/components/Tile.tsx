@@ -72,13 +72,15 @@ export function TileComponent({
     content = '🏠';
   }
 
+  // Legal move / current tile uses active player color; occupant pawn keeps its color
   const tileColor = isCurrentPlayerTile || isValidMove || isSelectableForStart ? (currentPlayerColor ?? playerColor) : playerColor;
+  const isInteractive = isSelected;
   return (
     <button
       type="button"
       data-tile-row={tile.row}
       data-tile-col={tile.column}
-      className={`tile ${tile.isClosed ? 'closed' : ''} ${isSelected ? 'selected' : ''} ${isValidMove ? 'valid-move' : ''} ${isCurrentPlayerTile ? 'current-player-tile' : ''} ${isSelectableForStart ? 'selectable-start' : ''} ${hasPawn ? 'has-pawn' : ''} ${hidePawnForMove ? 'pawn-moving' : ''} ${isMansionRow ? 'mansion-row' : ''} ${showCard ? 'revealed' : 'face-down'} ${isCandyBucket ? 'candy-bucket-tile' : ''} ${isMonster ? 'monster-tile' : ''}`}
+      className={`tile ${tile.isClosed ? 'closed' : ''} ${isSelected ? 'selected' : ''} ${isValidMove ? 'valid-move' : ''} ${isCurrentPlayerTile ? 'current-player-tile' : ''} ${isSelectableForStart ? 'selectable-start' : ''} ${hasPawn ? 'has-pawn' : ''} ${hidePawnForMove ? 'pawn-moving' : ''} ${isMansionRow ? 'mansion-row' : ''} ${showCard ? 'revealed' : 'face-down'} ${isCandyBucket ? 'candy-bucket-tile' : ''} ${isMonster ? 'monster-tile' : ''} ${isInteractive ? 'interactive' : ''}`}
       onClick={onClick}
       disabled={tile.isClosed}
       style={

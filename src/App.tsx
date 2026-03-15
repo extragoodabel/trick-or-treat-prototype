@@ -23,14 +23,22 @@ import { PlayerPanel } from './components/PlayerPanel';
 import { RoundEndSummary } from './components/RoundEndSummary';
 import { RulesModal } from './components/RulesModal';
 import { CollectibleFlyAnimation } from './components/CollectibleFlyAnimation';
+import { WitchSwapAnimation } from './components/WitchSwapAnimation';
+import { GoblinTheftAnimation } from './components/GoblinTheftAnimation';
+import { CandyDeltaIndicator } from './components/CandyDeltaIndicator';
 import type { ItemCard } from './game/types';
 import { formatTurnLogWithIcons } from './utils/formatTurnLog';
+import { getCostumeIcon } from './game/icons';
+import {
+  type BotSpeed,
+  BOT_TIMING_PRESETS,
+  loadBotSpeed,
+  saveBotSpeed,
+} from './config/botTiming';
 import './App.css';
 
 const PLAYER_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12'];
 const COSTUMES: CostumeType[] = ['Ghost', 'Zombie', 'Witch', 'Skeleton', 'Werewolf', 'Goblin'];
-const BOT_TURN_DELAY_MS = 1000;
-const BOT_AFFECTED_DELAY_MS = 1500;
 
 export default function App() {
   const [state, setState] = useState<GameState | null>(null);
@@ -40,24 +48,53 @@ export default function App() {
   const [devRevealAllTiles, setDevRevealAllTiles] = useState(false);
   const [showAllHands, setShowAllHands] = useState(false);
   const [showDevTools, setShowDevTools] = useState(false);
+  const [botSpeed, setBotSpeed] = useState<BotSpeed>(loadBotSpeed);
   const [pendingItem, setPendingItem] = useState<ItemCard | null>(null);
   const [showRules, setShowRules] = useState(false);
   const botTurnTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const botLastMoveFromRef = useRef<Record<string, BotMoveHistory>>({});
   const animationClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [turnJustChanged, setTurnJustChanged] = useState(false);
+  const prevPlayerIndexRef = useRef<number>(0);
+
+  // Turn-start pulse: track when current player changes for brief highlight animation
+  useEffect(() => {
+    if (!state || state.gamePhase !== 'playing') return;
+    if (state.currentPlayerIndex !== prevPlayerIndexRef.current) {
+      prevPlayerIndexRef.current = state.currentPlayerIndex;
+      setTurnJustChanged(true);
+      const id = setTimeout(() => setTurnJustChanged(false), 550);
+      return () => clearTimeout(id);
+    }
+  }, [state?.gamePhase, state?.currentPlayerIndex]);
 
   // Clear movement/item/candy animation state after display
+  const timing = BOT_TIMING_PRESETS[botSpeed];
   useEffect(() => {
     if (!state) return;
     const hasAnimation = state.lastMoveForAnimation || state.lastRevealedItem || state.lastRevealedCandy;
-    if (hasAnimation) {
+    const hasConsequence = (state.lastAffectedPlayerIds?.length ?? 0) > 0;
+    if (hasAnimation || hasConsequence) {
       if (animationClearRef.current) clearTimeout(animationClearRef.current);
-      // Move: 400ms, item/candy fly: ~700ms (200ms pop + 500ms fly)
-      const clearDelay = 1200;
+      const clearDelay = hasConsequence
+        ? timing.animationClearAfterConsequenceMs
+        : timing.animationClearDelayMs;
       animationClearRef.current = setTimeout(() => {
         setState((s) => {
-          if (!s || (!s.lastMoveForAnimation && !s.lastRevealedItem && !s.lastRevealedCandy)) return s;
-          const { lastMoveForAnimation, lastRevealedItem, lastRevealedCandy, ...rest } = s;
+          if (!s) return s;
+          const hasAny =
+            s.lastMoveForAnimation || s.lastRevealedItem || s.lastRevealedCandy ||
+            s.lastWitchSwap || s.lastGoblinTheft || (s.lastCandyDeltas?.length ?? 0) > 0;
+          if (!hasAny) return s;
+          const {
+            lastMoveForAnimation,
+            lastRevealedItem,
+            lastRevealedCandy,
+            lastWitchSwap,
+            lastGoblinTheft,
+            lastCandyDeltas,
+            ...rest
+          } = s;
           return rest as GameState;
         });
       }, clearDelay);
@@ -65,7 +102,26 @@ export default function App() {
     return () => {
       if (animationClearRef.current) clearTimeout(animationClearRef.current);
     };
-  }, [state?.lastMoveForAnimation, state?.lastRevealedItem, state?.lastRevealedCandy]);
+  }, [
+    botSpeed,
+    state?.lastMoveForAnimation,
+    state?.lastRevealedItem,
+    state?.lastRevealedCandy,
+    state?.lastAffectedPlayerIds,
+    state?.lastWitchSwap,
+    state?.lastGoblinTheft,
+    state?.lastCandyDeltas,
+  ]);
+
+  // Default to Move mode when human turn begins (preserve animation state)
+  useEffect(() => {
+    if (!state || state.gamePhase !== 'playing') return;
+    const currentPlayer = state.players[state.currentPlayerIndex];
+    const canAct = currentPlayer.controllerType === 'human' && !currentPlayer.isHome && !currentPlayer.skipNextTurn;
+    if (canAct && state.selectedAction === null) {
+      setState({ ...state, selectedAction: 'move', message: `${currentPlayer.name}'s turn. Choose an adjacent house to move.` });
+    }
+  }, [state]);
 
   const startGame = useCallback(() => {
     const gameState = createNewGame(playerCount, costumes as string[], controllerTypes);
@@ -73,6 +129,11 @@ export default function App() {
     setPendingItem(null);
     botLastMoveFromRef.current = {};
   }, [playerCount, costumes, controllerTypes]);
+
+  const handleBotSpeedChange = useCallback((speed: BotSpeed) => {
+    setBotSpeed(speed);
+    saveBotSpeed(speed);
+  }, []);
 
   // Bot starting position selection
   useEffect(() => {
@@ -85,9 +146,9 @@ export default function App() {
 
     const timer = setTimeout(() => {
       setState(selectStartingPosition(state, pos.row, pos.col));
-    }, 600);
+    }, timing.startingPositionDelayMs);
     return () => clearTimeout(timer);
-  }, [state?.gamePhase, state?.currentPlayerIndex, state?.players]);
+  }, [state?.gamePhase, state?.currentPlayerIndex, state?.players, timing.startingPositionDelayMs]);
 
   // Bot turn automation
   useEffect(() => {
@@ -129,12 +190,14 @@ export default function App() {
       setState(nextState);
     };
 
-    const delay = state.lastAffectedPlayerIds?.length ? BOT_AFFECTED_DELAY_MS : BOT_TURN_DELAY_MS;
+    const delay = state.lastAffectedPlayerIds?.length
+      ? timing.afterAffectedDelayMs
+      : timing.afterMoveDelayMs;
     botTurnTimeoutRef.current = setTimeout(executeBotAction, delay);
     return () => {
       if (botTurnTimeoutRef.current) clearTimeout(botTurnTimeoutRef.current);
     };
-  }, [state?.currentPlayerIndex, state?.gamePhase, state?.players, state?.board]);
+  }, [state?.currentPlayerIndex, state?.gamePhase, state?.players, state?.board, botSpeed]);
 
   const handleTileClick = useCallback(
     (row: number, col: number) => {
@@ -314,10 +377,6 @@ export default function App() {
         </header>
         <div className="app-main">
           <aside className="sidebar-left">
-            <div className="turn-log">
-              <h3>Turn Log</h3>
-              <ul />
-            </div>
             <div className="player-panels">
               {state.players.map((player, i) => (
                 <PlayerPanel
@@ -330,6 +389,25 @@ export default function App() {
                   isAffected={false}
                 />
               ))}
+            </div>
+            <div className="turn-log turn-log--secondary">
+              <h3>Move History</h3>
+              <ul />
+            </div>
+            <div className="bot-speed-control">
+              <span className="bot-speed-label">Bot Speed</span>
+              <div className="bot-speed-buttons" role="group" aria-label="Bot speed">
+                {(['fast', 'normal', 'slow'] as const).map((speed) => (
+                  <button
+                    key={speed}
+                    type="button"
+                    className={`bot-speed-btn ${botSpeed === speed ? 'active' : ''}`}
+                    onClick={() => handleBotSpeedChange(speed)}
+                  >
+                    {speed.charAt(0).toUpperCase() + speed.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="dev-tools">
               <button type="button" onClick={() => setShowDevTools(!showDevTools)} className="dev-toggle">
@@ -395,6 +473,23 @@ export default function App() {
   const currentPlayer = state.players[state.currentPlayerIndex];
   const isHumanTurn = currentPlayer.controllerType === 'human';
   const canAct = isHumanTurn && !currentPlayer.isHome && !currentPlayer.skipNextTurn;
+  const currentPlayerColor = PLAYER_COLORS[state.currentPlayerIndex] ?? '#fff';
+
+  // Live status: consequence message takes priority when present, else last turn log
+  const lastLogEntry = state.turnLog[state.turnLog.length - 1];
+  const consequenceMsg = state.lastConsequenceMessage;
+  const liveStatusText =
+    canAct && isHumanTurn
+      ? 'Your Turn — choose an adjacent house to move'
+      : !canAct && isHumanTurn
+        ? `${currentPlayer.name}'s Turn`
+        : !isHumanTurn && !lastLogEntry && !consequenceMsg
+          ? `${currentPlayer.name} (Bot)'s Turn — deciding…`
+          : consequenceMsg
+            ? formatTurnLogWithIcons(consequenceMsg)
+            : lastLogEntry
+              ? formatTurnLogWithIcons(lastLogEntry)
+              : `${currentPlayer.name}'s Turn`;
 
   return (
     <div className="app app--game-view">
@@ -411,17 +506,6 @@ export default function App() {
 
       <div className="app-main">
         <aside className="sidebar-left">
-          <div className="turn-log">
-            <h3>Turn Log</h3>
-            {state.lastActionDescription && state.lastAffectedPlayerIds && state.lastAffectedPlayerIds.length > 0 && (
-              <p className="turn-log-affected">{state.lastActionDescription}</p>
-            )}
-            <ul>
-              {state.turnLog.slice(-12).map((msg, i) => (
-                <li key={i}>{formatTurnLogWithIcons(msg)}</li>
-              ))}
-            </ul>
-          </div>
           <div className="player-panels">
             {state.players.map((player, i) => (
               <PlayerPanel
@@ -430,6 +514,7 @@ export default function App() {
                 playerIndex={i}
                 isCurrent={player.id === currentPlayer.id}
                 color={PLAYER_COLORS[i]}
+                turnJustChanged={turnJustChanged && player.id === currentPlayer.id}
                 onPlayItem={handlePlayItem}
                 canPlayItem={
                   canAct &&
@@ -440,6 +525,32 @@ export default function App() {
                 isAffected={state.lastAffectedPlayerIds?.includes(player.id) ?? false}
               />
             ))}
+          </div>
+          <div className="turn-log turn-log--secondary">
+            <h3>Move History</h3>
+            {state.lastActionDescription && state.lastAffectedPlayerIds && state.lastAffectedPlayerIds.length > 0 && (
+              <p className="turn-log-affected">{state.lastActionDescription}</p>
+            )}
+            <ul>
+              {state.turnLog.slice(-12).map((msg, i) => (
+                <li key={i}>{formatTurnLogWithIcons(msg)}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="bot-speed-control">
+            <span className="bot-speed-label">Bot Speed</span>
+            <div className="bot-speed-buttons" role="group" aria-label="Bot speed">
+              {(['fast', 'normal', 'slow'] as const).map((speed) => (
+                <button
+                  key={speed}
+                  type="button"
+                  className={`bot-speed-btn ${botSpeed === speed ? 'active' : ''}`}
+                  onClick={() => handleBotSpeedChange(speed)}
+                >
+                  {speed.charAt(0).toUpperCase() + speed.slice(1)}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="dev-tools">
             <button
@@ -500,6 +611,20 @@ export default function App() {
 
         <main className="board-main">
           <div className="board-and-controls">
+            <div
+              className="live-status-banner"
+              style={
+                {
+                  '--turn-player-color': currentPlayerColor,
+                  '--turn-glow': currentPlayerColor + '99',
+                } as React.CSSProperties
+              }
+              aria-live="polite"
+              key={`${state.currentPlayerIndex}-${state.turnLog.length}`}
+            >
+              <span className="live-status-costume">{getCostumeIcon(currentPlayer.costume)}</span>
+              <span className="live-status-text">{liveStatusText}</span>
+            </div>
             <div className="board-area">
               <div className="neighborhood-board">
                 <div className="neighborhood-decor neighborhood-pumpkins" aria-hidden="true">🎃</div>
@@ -512,7 +637,7 @@ export default function App() {
                 />
               </div>
             </div>
-            <div className="controls">
+            <div className={`controls ${canAct ? 'controls--human-turn' : ''}`}>
               {canAct && (
                 <>
                   <button
@@ -535,6 +660,12 @@ export default function App() {
                   <button type="button" onClick={() => setState(endTurn(state))}>
                     End Turn
                   </button>
+                  {!pendingItem && (
+                    <span className="controls-hint">
+                      {state.selectedAction === 'move' && 'Choose an adjacent house to move'}
+                      {state.selectedAction === 'playItem' && 'Select an item to play'}
+                    </span>
+                  )}
                 </>
               )}
               {pendingItem && (
@@ -550,6 +681,22 @@ export default function App() {
             lastRevealedCandy={state.lastRevealedCandy ?? null}
           />
         )}
+        {state.lastWitchSwap && (
+          <WitchSwapAnimation
+            fromPlayerIndex={state.lastWitchSwap.fromPlayerIndex}
+            toPlayerIndex={state.lastWitchSwap.toPlayerIndex}
+          />
+        )}
+        {state.lastGoblinTheft && (
+          <GoblinTheftAnimation
+            fromPlayerIndex={state.lastGoblinTheft.fromPlayerIndex}
+            toPlayerIndex={state.lastGoblinTheft.toPlayerIndex}
+            itemType={state.lastGoblinTheft.itemType}
+          />
+        )}
+        {state.lastCandyDeltas?.map((d, i) => (
+          <CandyDeltaIndicator key={i} playerIndex={d.playerIndex} delta={d.delta} />
+        ))}
       </div>
     </div>
   );

@@ -66,8 +66,26 @@
 
 .sidebar-left .turn-log {
   flex-shrink: 0;
-  min-height: 100px;
-  max-height: 180px;
+  min-height: 80px;
+  max-height: 140px;
+}
+
+.turn-log--secondary {
+  font-size: 0.8rem;
+  opacity: 0.92;
+  min-height: 60px;
+  max-height: 120px;
+}
+
+.turn-log--secondary h3 {
+  font-size: 0.75rem;
+  color: var(--halloween-muted-brown);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.turn-log--secondary ul {
+  font-size: 0.78rem;
 }
 
 /* Right side: board dominates, controls below */
@@ -388,23 +406,47 @@
 }
 
 .player-panel.current {
-  border-color: var(--halloween-lantern);
-  box-shadow: 0 0 20px rgba(255, 195, 0, 0.4), inset 0 0 20px rgba(255, 195, 0, 0.05);
+  border-color: var(--player-color, var(--halloween-lantern));
+  border-width: 2px;
+  box-shadow: 0 0 20px var(--player-glow, rgba(255, 195, 0, 0.5)),
+    inset 0 0 16px var(--player-glow, rgba(255, 195, 0, 0.15));
+}
+
+.player-panel.current.turn-start {
+  animation: turn-start-pulse 0.55s ease-out;
+}
+
+@keyframes turn-start-pulse {
+  0% { box-shadow: 0 0 0 0 var(--player-glow, rgba(255, 195, 0, 0.7)); }
+  40% { box-shadow: 0 0 28px 6px var(--player-glow, rgba(255, 195, 0, 0.6)); }
+  100% { box-shadow: 0 0 20px var(--player-glow, rgba(255, 195, 0, 0.5)); }
+}
+
+.player-panel.inactive {
+  opacity: 0.7;
+  filter: brightness(0.9);
 }
 
 .player-panel.affected {
-  animation: affected-pulse 1.5s ease-out;
+  animation: affected-pulse 1.8s ease-out;
 }
 
 @keyframes affected-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(232, 93, 4, 0.6);
+    box-shadow: 0 0 0 0 rgba(232, 93, 4, 0.8), 0 0 0 3px rgba(232, 93, 4, 0.5);
+    transform: scale(1);
+  }
+  25% {
+    box-shadow: 0 0 28px 8px rgba(232, 93, 4, 0.5), 0 0 0 4px rgba(232, 93, 4, 0.6);
+    transform: scale(1.02);
   }
   50% {
-    box-shadow: 0 0 24px 6px rgba(232, 93, 4, 0.4);
+    box-shadow: 0 0 24px 6px rgba(232, 93, 4, 0.4), 0 0 0 3px rgba(232, 93, 4, 0.4);
+    transform: scale(1.01);
   }
   100% {
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    transform: scale(1);
   }
 }
 
@@ -662,39 +704,196 @@
 }
 
 /* Collectible fly animation - item/candy from tile to player panel */
+/* Phases: brief hold → pop/bounce → travel → settle */
 .collectible-fly {
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: none;
   z-index: 300;
-  animation: collectible-pop-then-fly 0.7s ease-out forwards;
+  animation: collectible-pop-then-fly 1.15s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.collectible-fly::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 195, 0, 0.25) 0%, transparent 70%);
+  animation: collectible-halo 1.15s ease-out forwards;
+}
+
+@keyframes collectible-halo {
+  0% { opacity: 0; transform: scale(0.5); }
+  15% { opacity: 1; transform: scale(1.2); }
+  25% { opacity: 0.6; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
 }
 
 .collectible-fly-icon {
-  font-size: 1.75rem;
-  filter: drop-shadow(0 0 8px rgba(255, 195, 0, 0.6));
+  font-size: 2.5rem;
+  filter: drop-shadow(0 0 12px rgba(255, 195, 0, 0.9)) drop-shadow(0 0 24px rgba(255, 195, 0, 0.5));
+  position: relative;
+  z-index: 1;
 }
 
 @keyframes collectible-pop-then-fly {
+  /* 0-18%: reveal hold - linger so player registers what was found */
   0% {
-    transform: scale(0.5);
-    opacity: 0.8;
+    transform: scale(0.4);
+    opacity: 0.6;
   }
-  25% {
+  8% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+  18% {
     transform: scale(1.15);
     opacity: 1;
   }
-  30% {
-    transform: scale(1);
+  /* 18-25%: slight bounce before travel */
+  22% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  /* 25-85%: visible travel to inventory */
+  85% {
+    transform: translate(
+      calc(var(--fly-delta-x) * 1px),
+      calc(var(--fly-delta-y) * 1px)
+    ) scale(0.95);
+    opacity: 1;
+  }
+  /* 85-100%: settle/pop into inventory */
+  100% {
+    transform: translate(
+      calc(var(--fly-delta-x) * 1px),
+      calc(var(--fly-delta-y) * 1px)
+    ) scale(0.85);
+    opacity: 0;
+  }
+}
+
+/* Witch swap - cards fly between two player panels */
+.witch-swap-fly {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 310;
+  animation: witch-swap-fly 1.1s cubic-bezier(0.34, 1.2, 0.64, 1) forwards;
+}
+
+.witch-swap-fly--b-to-a {
+  animation-delay: 0.08s;
+}
+
+.witch-swap-icon {
+  font-size: 1.8rem;
+  filter: drop-shadow(0 0 8px rgba(138, 43, 226, 0.6));
+}
+
+@keyframes witch-swap-fly {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.8;
+  }
+  15% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+  85% {
+    transform: translate(
+      calc(var(--fly-delta-x) * 1px),
+      calc(var(--fly-delta-y) * 1px)
+    ) scale(0.9);
     opacity: 1;
   }
   100% {
     transform: translate(
       calc(var(--fly-delta-x) * 1px),
       calc(var(--fly-delta-y) * 1px)
-    ) scale(0.9);
+    ) scale(0.8);
     opacity: 0;
+  }
+}
+
+/* Goblin theft - stolen card flies from victim to thief */
+.goblin-theft-fly {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 310;
+  animation: goblin-theft-fly 1s cubic-bezier(0.34, 1.2, 0.64, 1) forwards;
+}
+
+.goblin-theft-icon {
+  font-size: 2rem;
+  filter: drop-shadow(0 0 8px rgba(232, 93, 4, 0.6));
+}
+
+@keyframes goblin-theft-fly {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.9;
+  }
+  12% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  88% {
+    transform: translate(
+      calc(var(--fly-delta-x) * 1px),
+      calc(var(--fly-delta-y) * 1px)
+    ) scale(0.95);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(
+      calc(var(--fly-delta-x) * 1px),
+      calc(var(--fly-delta-y) * 1px)
+    ) scale(0.85);
+    opacity: 0;
+  }
+}
+
+/* Candy delta - floating +/- indicator near player panel */
+.candy-delta-indicator {
+  font-size: 1.25rem;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 305;
+  animation: candy-delta-float 1.4s ease-out forwards;
+}
+
+.candy-delta--gain {
+  color: var(--halloween-lantern);
+  text-shadow: 0 0 12px rgba(255, 195, 0, 0.8);
+}
+
+.candy-delta--loss {
+  color: #e74c3c;
+  text-shadow: 0 0 8px rgba(231, 76, 60, 0.6);
+}
+
+@keyframes candy-delta-float {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.1);
+  }
+  30% {
+    opacity: 1;
+    transform: translate(-50%, -70%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -120%) scale(0.9);
   }
 }
 
@@ -783,11 +982,17 @@
   50% { box-shadow: inset 0 0 30px rgba(255, 195, 0, 0.2), 0 0 20px rgba(255, 195, 0, 0.4); }
 }
 
-.tile:hover:not(:disabled) {
+/* Hover only on interactive tiles (valid moves, current tile, selectable) */
+.tile.interactive:hover:not(:disabled) {
   background: linear-gradient(180deg, var(--halloween-house-light) 0%, var(--halloween-porch-on) 100%);
   border-color: var(--halloween-lantern);
   transform: scale(1.02);
   box-shadow: 0 0 16px rgba(255, 195, 0, 0.25);
+}
+
+/* Non-interactive tiles: no hover highlight, discourages clicking */
+.tile:not(.interactive):not(.closed) {
+  cursor: default;
 }
 
 /* Active player's current tile - player color outline and glow */
@@ -797,10 +1002,16 @@
 }
 
 /* Valid move destinations - subtle highlight in player color */
+/* When tile is also occupied, legal-move styling takes precedence over occupant tint */
 .tile.valid-move {
   border-color: var(--tile-accent-color, var(--halloween-lantern));
   box-shadow: 0 0 8px var(--tile-accent-color, var(--halloween-lantern));
   opacity: 1;
+}
+
+.tile.valid-move.has-pawn {
+  border-color: var(--tile-accent-color, var(--halloween-lantern));
+  box-shadow: 0 0 10px var(--tile-accent-color, var(--halloween-lantern));
 }
 
 .tile.valid-move:hover:not(:disabled) {
@@ -850,7 +1061,8 @@
   box-shadow: 0 0 20px rgba(124, 58, 237, 0.5);
 }
 
-.tile.has-pawn {
+/* Occupied tile: use occupant color only when NOT a valid move */
+.tile.has-pawn:not(.valid-move):not(.current-player-tile) {
   border-color: var(--pawn-color, var(--halloween-lantern));
   box-shadow: 0 0 12px var(--pawn-color, var(--halloween-lantern));
 }
@@ -940,11 +1152,68 @@
   box-shadow: 0 0 10px rgba(232, 93, 4, 0.2);
 }
 
+.controls.controls--human-turn {
+  border-color: var(--halloween-lantern);
+  box-shadow: 0 0 14px rgba(255, 195, 0, 0.25);
+}
+
 .controls button.active {
   background: linear-gradient(180deg, var(--halloween-pumpkin-light) 0%, var(--halloween-pumpkin) 100%);
   color: #1a0f2e;
   border-color: var(--halloween-lantern);
   box-shadow: 0 0 12px rgba(232, 93, 4, 0.4);
+}
+
+/* Live status banner - play-by-play action feed above board */
+.live-status-banner {
+  width: 100%;
+  max-width: 560px;
+  padding: 0.6rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  text-align: center;
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--turn-player-color, var(--halloween-lantern));
+  background: linear-gradient(90deg, transparent, var(--turn-glow, rgba(255, 195, 0, 0.2)), transparent);
+  border: 2px solid var(--turn-player-color, var(--halloween-lantern));
+  border-radius: 8px;
+  animation: live-status-appear 0.4s ease-out, live-status-pulse 2.5s ease-in-out 0.5s infinite;
+  flex-shrink: 0;
+  min-height: 2.5rem;
+}
+
+.live-status-costume {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 6px currentColor);
+}
+
+.live-status-text {
+  flex: 1;
+  min-width: 0;
+}
+
+@keyframes live-status-appear {
+  0% { opacity: 0; transform: scale(0.98); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes live-status-pulse {
+  0%, 100% { box-shadow: 0 0 12px var(--turn-glow, rgba(255, 195, 0, 0.4)); }
+  50% { box-shadow: 0 0 20px var(--turn-glow, rgba(255, 195, 0, 0.55)); }
+}
+
+.controls-hint {
+  flex-basis: 100%;
+  font-size: 0.85rem;
+  color: var(--halloween-muted-brown);
+  font-style: italic;
+  text-align: center;
+  margin-top: 0.2rem;
 }
 
 .board-and-controls .pending-hint {
@@ -957,6 +1226,52 @@
 }
 
 /* ---------- Dev Tools - Left Sidebar ---------- */
+/* Bot Speed control - above dev tools */
+.bot-speed-control {
+  flex-shrink: 0;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--halloween-autumn-brown);
+}
+
+.bot-speed-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--halloween-muted-brown);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.35rem;
+}
+
+.bot-speed-buttons {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.bot-speed-btn {
+  flex: 1;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  background: var(--halloween-porch-off);
+  color: var(--halloween-muted-brown);
+  border: 1px solid var(--halloween-autumn-brown);
+  border-radius: 5px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.bot-speed-btn:hover {
+  background: var(--halloween-porch-on);
+  color: var(--halloween-parchment-text);
+}
+
+.bot-speed-btn.active {
+  background: var(--halloween-lantern);
+  color: var(--halloween-dark);
+  border-color: var(--halloween-lantern);
+  font-weight: 600;
+}
+
 .sidebar-left .dev-tools {
   margin-top: 0;
   padding-top: 0.5rem;
@@ -1010,10 +1325,387 @@
   color: var(--halloween-parchment-text);
 }
 
-/* ---------- Responsive: Game View ---------- */
-@media (max-width: 900px) {
+/* ---------- Responsive: Game View - Proportional scaling ---------- */
+/* Medium desktop / small laptop: tighter spacing, smaller panels */
+@media (max-width: 1100px) {
+  .app--game-view {
+    padding: 0.3rem 0.4rem;
+  }
+  .app--game-view .app-header {
+    gap: 0.75rem;
+    padding: 0.2rem 0.4rem;
+    margin-bottom: 0.2rem;
+  }
+  .app--game-view .app-title {
+    font-size: 1.1rem;
+  }
+  .app--game-view .app-header .round-info,
+  .app--game-view .app-header .message {
+    font-size: 0.8rem;
+  }
+  .app--game-view .app-main {
+    gap: 0.5rem;
+  }
   .app--game-view .sidebar-left {
-    width: 180px;
+    width: 195px;
+    gap: 0.4rem;
+  }
+  .app--game-view .sidebar-left .turn-log {
+    min-height: 80px;
+    max-height: 150px;
+    padding: 0.4rem 0.6rem;
+  }
+  .app--game-view .sidebar-left .turn-log h3 {
+    font-size: 0.85rem;
+  }
+  .app--game-view .sidebar-left .turn-log ul {
+    font-size: 0.8rem;
+  }
+  .app--game-view .sidebar-left .turn-log li {
+    margin-bottom: 0.3rem;
+  }
+  .app--game-view .sidebar-left .player-panel {
+    padding: 0.4rem 0.5rem;
+  }
+  .app--game-view .sidebar-left .player-panels {
+    gap: 0.4rem;
+  }
+  .app--game-view .sidebar-left .player-header {
+    margin-bottom: 0.15rem;
+  }
+  .app--game-view .sidebar-left .costume {
+    font-size: 1rem;
+  }
+  .app--game-view .sidebar-left .player-stats {
+    font-size: 0.8rem;
+    margin-bottom: 0.15rem;
+  }
+  .app--game-view .item-btn-icon {
+    min-width: 1.75rem;
+    min-height: 1.75rem;
+    padding: 0.25rem !important;
+  }
+  .app--game-view .item-btn-icon .item-icon {
+    font-size: 1rem;
+  }
+  .app--game-view .board-main {
+    padding: 0.1rem 0.35rem 0.35rem;
+  }
+  .app--game-view .board-and-controls {
+    gap: 0.4rem;
+    max-width: 480px;
+  }
+  .app--game-view .live-status-banner {
+    max-width: 480px;
+    font-size: 1rem;
+  }
+  .app--game-view .board-and-controls .board-area {
+    max-width: 480px;
+    height: 450px;
+    max-height: 450px;
+  }
+  .app--game-view .neighborhood-board {
+    padding: 0.75rem;
+  }
+  .app--game-view .board {
+    padding: 0.4rem;
+  }
+  .app--game-view .board-and-controls .controls {
+    padding: 0.35rem 0.6rem;
+    max-width: 480px;
+  }
+  .app--game-view .board-and-controls .controls button {
+    padding: 0.35rem 0.7rem;
+    font-size: 0.8rem;
+  }
+  .app--game-view .rules-btn {
+    padding: 0.35rem 0.6rem;
+    font-size: 0.8rem;
+  }
+}
+
+/* Small laptop: more compact player panels, smaller board */
+@media (max-width: 950px) {
+  .app--game-view {
+    padding: 0.25rem 0.35rem;
+  }
+  .app--game-view .app-header {
+    gap: 0.5rem;
+    padding: 0.15rem 0.35rem;
+    min-height: 1.75rem;
+  }
+  .app--game-view .app-title {
+    font-size: 1rem;
+  }
+  .app--game-view .app-header .round-info,
+  .app--game-view .app-header .message {
+    font-size: 0.75rem;
+  }
+  .app--game-view .app-main {
+    gap: 0.35rem;
+  }
+  .app--game-view .sidebar-left {
+    width: 165px;
+    gap: 0.3rem;
+  }
+  .app--game-view .sidebar-left .turn-log {
+    min-height: 70px;
+    max-height: 120px;
+    padding: 0.35rem 0.5rem;
+  }
+  .app--game-view .sidebar-left .turn-log h3 {
+    font-size: 0.8rem;
+  }
+  .app--game-view .sidebar-left .turn-log ul {
+    font-size: 0.75rem;
+  }
+  .app--game-view .sidebar-left .turn-log li {
+    margin-bottom: 0.25rem;
+  }
+  .app--game-view .sidebar-left .player-panel {
+    padding: 0.3rem 0.4rem;
+  }
+  .app--game-view .sidebar-left .player-panels {
+    gap: 0.3rem;
+  }
+  .app--game-view .sidebar-left .player-header {
+    margin-bottom: 0.1rem;
+  }
+  .app--game-view .sidebar-left .costume {
+    font-size: 0.95rem;
+  }
+  .app--game-view .sidebar-left .name {
+    font-size: 0.85rem;
+  }
+  .app--game-view .sidebar-left .bot-badge {
+    font-size: 0.6rem;
+    padding: 0.1rem 0.25rem;
+  }
+  .app--game-view .sidebar-left .home-badge,
+  .app--game-view .sidebar-left .skip-badge {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.3rem;
+  }
+  .app--game-view .sidebar-left .player-stats {
+    font-size: 0.75rem;
+    margin-bottom: 0.1rem;
+  }
+  .app--game-view .sidebar-left .player-items-icons {
+    gap: 0.2rem;
+  }
+  .app--game-view .item-btn-icon {
+    min-width: 1.5rem;
+    min-height: 1.5rem;
+    padding: 0.2rem !important;
+  }
+  .app--game-view .item-btn-icon .item-icon {
+    font-size: 0.9rem;
+  }
+  .app--game-view .board-and-controls {
+    max-width: 420px;
+    gap: 0.35rem;
+  }
+  .app--game-view .live-status-banner {
+    max-width: 420px;
+    font-size: 0.95rem;
+    padding: 0.4rem 0.75rem;
+  }
+  .app--game-view .board-and-controls .board-area {
+    max-width: 420px;
+    height: 400px;
+    max-height: 400px;
+  }
+  .app--game-view .neighborhood-board {
+    padding: 0.5rem;
+  }
+  .app--game-view .board {
+    padding: 0.35rem;
+    gap: 3px 0.4rem;
+    grid-template-columns: 80px 1fr;
+  }
+  .app--game-view .board-row-label,
+  .app--game-view .board-col-label {
+    font-size: 0.6rem;
+  }
+  .app--game-view .tile {
+    font-size: 1.25rem;
+  }
+  .app--game-view .tile-pawn {
+    min-width: 0.75rem;
+    min-height: 0.75rem;
+    font-size: 0.6rem;
+  }
+  .app--game-view .candy-badge {
+    font-size: 0.65rem;
+    padding: 0 4px;
+  }
+  .app--game-view .board-and-controls .controls {
+    padding: 0.3rem 0.5rem;
+    max-width: 420px;
+  }
+  .app--game-view .board-and-controls .controls button {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.75rem;
+  }
+  .app--game-view .rules-btn {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.75rem;
+  }
+  .app--game-view .sidebar-left .dev-tools {
+    padding-top: 0.35rem;
+  }
+  .app--game-view .dev-toggle {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.8rem;
+  }
+}
+
+/* Tablet-ish: very compact, same layout preserved */
+@media (max-width: 800px) {
+  .app--game-view {
+    padding: 0.2rem 0.3rem;
+  }
+  .app--game-view .app-header {
+    gap: 0.4rem;
+    padding: 0.1rem 0.3rem;
+    min-height: 1.5rem;
+  }
+  .app--game-view .app-title {
+    font-size: 0.95rem;
+  }
+  .app--game-view .app-header .round-info,
+  .app--game-view .app-header .message {
+    font-size: 0.7rem;
+  }
+  .app--game-view .app-main {
+    gap: 0.3rem;
+  }
+  .app--game-view .sidebar-left {
+    width: 140px;
+    gap: 0.25rem;
+  }
+  .app--game-view .sidebar-left .turn-log {
+    min-height: 60px;
+    max-height: 100px;
+    padding: 0.3rem 0.4rem;
+  }
+  .app--game-view .sidebar-left .turn-log h3 {
+    font-size: 0.75rem;
+  }
+  .app--game-view .sidebar-left .turn-log ul {
+    font-size: 0.7rem;
+  }
+  .app--game-view .sidebar-left .turn-log li {
+    margin-bottom: 0.2rem;
+  }
+  .app--game-view .sidebar-left .player-panel {
+    padding: 0.25rem 0.35rem;
+  }
+  .app--game-view .sidebar-left .player-panels {
+    gap: 0.25rem;
+  }
+  .app--game-view .sidebar-left .player-header {
+    margin-bottom: 0.08rem;
+  }
+  .app--game-view .sidebar-left .costume {
+    font-size: 0.85rem;
+  }
+  .app--game-view .sidebar-left .name {
+    font-size: 0.8rem;
+  }
+  .app--game-view .sidebar-left .bot-badge {
+    font-size: 0.55rem;
+    padding: 0.08rem 0.2rem;
+  }
+  .app--game-view .sidebar-left .home-badge,
+  .app--game-view .sidebar-left .skip-badge {
+    font-size: 0.6rem;
+    padding: 0.1rem 0.25rem;
+  }
+  .app--game-view .sidebar-left .player-stats {
+    font-size: 0.7rem;
+    margin-bottom: 0.08rem;
+  }
+  .app--game-view .sidebar-left .player-items-icons {
+    gap: 0.15rem;
+  }
+  .app--game-view .item-btn-icon {
+    min-width: 1.35rem;
+    min-height: 1.35rem;
+    padding: 0.15rem !important;
+  }
+  .app--game-view .item-btn-icon .item-icon {
+    font-size: 0.8rem;
+  }
+  .app--game-view .no-items {
+    font-size: 0.75rem;
+  }
+  .app--game-view .board-main {
+    padding: 0.08rem 0.25rem 0.25rem;
+  }
+  .app--game-view .board-and-controls {
+    max-width: 360px;
+    gap: 0.3rem;
+  }
+  .app--game-view .live-status-banner {
+    max-width: 360px;
+    font-size: 0.9rem;
+    padding: 0.35rem 0.6rem;
+  }
+  .app--game-view .board-and-controls .board-area {
+    max-width: 360px;
+    height: 340px;
+    max-height: 340px;
+  }
+  .app--game-view .neighborhood-board {
+    padding: 0.4rem;
+  }
+  .app--game-view .neighborhood-decor {
+    font-size: 1rem;
+  }
+  .app--game-view .board {
+    padding: 0.3rem;
+    gap: 2px 0.35rem;
+    grid-template-columns: 65px 1fr;
+  }
+  .app--game-view .board-row-label,
+  .app--game-view .board-col-label {
+    font-size: 0.55rem;
+  }
+  .app--game-view .board-grid-wrapper,
+  .app--game-view .board-grid {
+    gap: 4px;
+  }
+  .app--game-view .tile {
+    font-size: 1.1rem;
+  }
+  .app--game-view .tile-pawn {
+    min-width: 0.65rem;
+    min-height: 0.65rem;
+    font-size: 0.55rem;
+  }
+  .app--game-view .candy-badge {
+    font-size: 0.6rem;
+    padding: 0 3px;
+  }
+  .app--game-view .board-and-controls .controls {
+    padding: 0.25rem 0.4rem;
+    max-width: 360px;
+  }
+  .app--game-view .board-and-controls .controls button {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.7rem;
+  }
+  .app--game-view .rules-btn {
+    padding: 0.25rem 0.4rem;
+    font-size: 0.7rem;
+  }
+  .app--game-view .sidebar-left .dev-tools {
+    padding-top: 0.25rem;
+  }
+  .app--game-view .dev-toggle {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
   }
 }
 
@@ -1183,44 +1875,57 @@
   color: var(--halloween-lantern);
 }
 
-/* ---------- Responsive: Game View ---------- */
-@media (max-width: 700px) {
+/* ---------- Responsive: Major layout change - only when necessary ---------- */
+@media (max-width: 650px) {
   .app--game-view .app-main {
     flex-direction: column;
   }
 
   .app--game-view .sidebar-left {
     width: 100%;
-    max-height: 38vh;
+    max-height: 36vh;
     flex-direction: row;
     flex-wrap: wrap;
     align-content: flex-start;
+    gap: 0.35rem;
   }
 
   .app--game-view .sidebar-left .turn-log {
     flex: 1 1 100%;
-    max-height: 120px;
+    max-height: 100px;
+    min-height: 60px;
   }
 
   .app--game-view .sidebar-left .player-panels {
     flex-direction: row;
     flex-wrap: wrap;
     flex: 1 1 100%;
+    gap: 0.3rem;
   }
 
   .app--game-view .sidebar-left .player-panel {
     flex: 1 1 45%;
-    min-width: 120px;
+    min-width: 100px;
+    padding: 0.25rem 0.35rem;
   }
 
   .app--game-view .board-main {
     flex: 1;
-    min-height: 280px;
+    min-height: 260px;
+    padding: 0.15rem 0.25rem;
+  }
+
+  .app--game-view .board-and-controls {
+    max-width: 100%;
   }
 
   .app--game-view .board-and-controls .board-area {
     max-width: 100%;
     max-height: 100%;
-    height: auto;
+    height: min(320px, 50vh);
+  }
+
+  .app--game-view .board-and-controls .controls {
+    max-width: 100%;
   }
 }

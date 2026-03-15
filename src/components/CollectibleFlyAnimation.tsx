@@ -71,6 +71,8 @@ export function CollectibleFlyAnimation({
   }, [lastRevealedCandy]);
 
   const itemIcon = lastRevealedItem ? getItemIcon(lastRevealedItem.itemType) : null;
+  const size = 56; // Larger reveal for visibility
+  const half = size / 2;
 
   return (
     <>
@@ -81,10 +83,10 @@ export function CollectibleFlyAnimation({
               className="collectible-fly collectible-fly--item"
               style={{
                 position: 'fixed',
-                left: itemRects.start.left + itemRects.start.width / 2 - 16,
-                top: itemRects.start.top + itemRects.start.height / 2 - 16,
-                width: 32,
-                height: 32,
+                left: itemRects.start.left + itemRects.start.width / 2 - half,
+                top: itemRects.start.top + itemRects.start.height / 2 - half,
+                width: size,
+                height: size,
                 '--fly-delta-x': itemRects.end.left + itemRects.end.width / 2 - (itemRects.start.left + itemRects.start.width / 2),
                 '--fly-delta-y': itemRects.end.top + itemRects.end.height / 2 - (itemRects.start.top + itemRects.start.height / 2),
               } as React.CSSProperties}
@@ -103,10 +105,10 @@ export function CollectibleFlyAnimation({
               className="collectible-fly collectible-fly--candy"
               style={{
                 position: 'fixed',
-                left: candyRects.start.left + candyRects.start.width / 2 - 16,
-                top: candyRects.start.top + candyRects.start.height / 2 - 16,
-                width: 32,
-                height: 32,
+                left: candyRects.start.left + candyRects.start.width / 2 - half,
+                top: candyRects.start.top + candyRects.start.height / 2 - half,
+                width: size,
+                height: size,
                 '--fly-delta-x': candyRects.end.left + candyRects.end.width / 2 - (candyRects.start.left + candyRects.start.width / 2),
                 '--fly-delta-y': candyRects.end.top + candyRects.end.height / 2 - (candyRects.start.top + candyRects.start.height / 2),
               } as React.CSSProperties}

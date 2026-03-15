@@ -219,30 +219,43 @@ function resolveMonster(
     };
   }
 
-  const withAffected = (s: GameState, ids: string[], desc: string) => ({
+  const withAffected = (
+    s: GameState,
+    ids: string[],
+    desc: string,
+    extra?: Partial<GameState>
+  ) => ({
     ...s,
     lastAffectedPlayerIds: ids,
     lastActionDescription: desc,
+    ...extra,
   });
 
   switch (card.monsterType) {
-    case 'Ghost':
+    case 'Ghost': {
+      const lost = GAME_RULES.ghostLoseTokens;
       players[playerIdx] = {
         ...player,
-        candyTokens: Math.max(0, player.candyTokens - GAME_RULES.ghostLoseTokens),
+        candyTokens: Math.max(0, player.candyTokens - lost),
       };
       return withAffected(
         { ...state, players, message: `${player.name} lost 3 candy to Ghost!` },
         [player.id],
-        'lost 3 candy to Ghost'
+        'lost 3 candy to Ghost',
+        {
+          lastConsequenceMessage: `${player.name} lost 3 candy to Ghost`,
+          lastCandyDeltas: [{ playerIndex: playerIdx, delta: -lost }],
+        }
       );
+    }
 
     case 'Zombie':
       players[playerIdx] = { ...player, skipNextTurn: true };
       return withAffected(
         { ...state, players, message: `${player.name} skips next turn (Zombie)!` },
         [player.id],
-        'skips next turn (Zombie)'
+        'skips next turn (Zombie)',
+        { lastConsequenceMessage: `${player.name} skips next turn (Zombie)` }
       );
 
     case 'Witch': {
@@ -255,7 +268,11 @@ function resolveMonster(
         return withAffected(
           { ...state, players, message: `${player.name} swapped hands with ${other.name} (Witch)!` },
           [player.id, other.id],
-          'swapped hands (Witch)'
+          'swapped hands (Witch)',
+          {
+            lastConsequenceMessage: `${player.name} swapped hands with ${other.name} (Witch)`,
+            lastWitchSwap: { fromPlayerIndex: playerIdx, toPlayerIndex: otherIdx },
+          }
         );
       }
       return { ...state, players, message: `${player.name} swapped hands with Witch!` };
@@ -265,7 +282,8 @@ function resolveMonster(
       return withAffected(
         { ...state, message: `${player.name} revealed hand (Skeleton)!` },
         [player.id],
-        'revealed hand (Skeleton)'
+        'revealed hand (Skeleton)',
+        { lastConsequenceMessage: `${player.name} revealed hand (Skeleton)` }
       );
 
     case 'Werewolf': {
@@ -274,7 +292,11 @@ function resolveMonster(
       return withAffected(
         { ...state, players, message: `${player.name} lost half candy to Werewolf!` },
         [player.id],
-        `lost ${lost} candy to Werewolf`
+        `lost ${lost} candy to Werewolf`,
+        {
+          lastConsequenceMessage: `${player.name} lost ${lost} candy to Werewolf`,
+          lastCandyDeltas: lost > 0 ? [{ playerIndex: playerIdx, delta: -lost }] : undefined,
+        }
       );
     }
 
@@ -296,7 +318,15 @@ function resolveMonster(
         return withAffected(
           { ...state, players, message: `${player.name} took a card from ${fewest.name} (Goblin)!` },
           [fewest.id, player.id],
-          `${player.name} took card from ${fewest.name} (Goblin)`
+          `${player.name} took card from ${fewest.name} (Goblin)`,
+          {
+            lastConsequenceMessage: `${player.name} stole a card from ${fewest.name} (Goblin)`,
+            lastGoblinTheft: {
+              fromPlayerIndex: fromIdx,
+              toPlayerIndex: playerIdx,
+              itemType: taken.type,
+            },
+          }
         );
       }
       return { ...state, players, message: `${player.name} triggered Goblin!` };
@@ -326,6 +356,10 @@ function clearAffectedState(s: GameState): GameState {
     ...s,
     lastAffectedPlayerIds: undefined,
     lastActionDescription: undefined,
+    lastConsequenceMessage: undefined,
+    lastWitchSwap: undefined,
+    lastGoblinTheft: undefined,
+    lastCandyDeltas: undefined,
     lastMoveForAnimation: undefined,
     lastRevealedItem: undefined,
     lastRevealedCandy: undefined,

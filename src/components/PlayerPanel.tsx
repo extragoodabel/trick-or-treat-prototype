@@ -6,6 +6,7 @@ interface PlayerPanelProps {
   playerIndex: number;
   isCurrent: boolean;
   color: string;
+  turnJustChanged?: boolean;
   onPlayItem?: (item: ItemCard) => void;
   canPlayItem?: boolean;
   showHand?: boolean;
@@ -17,6 +18,7 @@ export function PlayerPanel({
   playerIndex,
   isCurrent,
   color,
+  turnJustChanged = false,
   onPlayItem,
   canPlayItem,
   showHand = true,
@@ -24,8 +26,14 @@ export function PlayerPanel({
 }: PlayerPanelProps) {
   return (
     <div
-      className={`player-panel ${isCurrent ? 'current' : ''} ${isAffected ? 'affected' : ''}`}
-      style={{ borderColor: color }}
+      className={`player-panel ${isCurrent ? 'current' : 'inactive'} ${turnJustChanged ? 'turn-start' : ''} ${isAffected ? 'affected' : ''}`}
+      style={
+        {
+          borderColor: color,
+          '--player-color': color,
+          '--player-glow': color + '80',
+        } as React.CSSProperties
+      }
       data-player-index={playerIndex}
     >
       <div className="player-header">
