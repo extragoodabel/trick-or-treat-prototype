@@ -18,6 +18,7 @@ export function createInitialPlayers(
     'Skeleton',
     'Werewolf',
     'Goblin',
+    'Vampire',
   ] as const;
   const players: Player[] = [];
   for (let i = 0; i < count; i++) {
@@ -33,10 +34,12 @@ export function createInitialPlayers(
       costume,
       controllerType: ctrl,
       pawnPosition: null,
-      candyTokens: 0,
+      bankedCandy: 0,
+      roundCandy: 0,
       itemCards: [],
       isHome: false,
       skipNextTurn: false,
+      handRevealed: false,
     });
   }
   return players;
@@ -90,6 +93,24 @@ export function generateBoard(
     board[4][c].card = row5Cards[c];
   }
 
+  // Neighborhood 3 only: House on the Hill beyond Mansion Row (row 5, center)
+  if (roundNumber === 2) {
+    const hillRow: Tile[] = [];
+    for (let c = 0; c < GAME_RULES.boardCols; c++) {
+      const isHillHouse = c === 2;
+      hillRow.push({
+        row: 5,
+        column: c,
+        card: isHillHouse ? { type: 'HouseOnHill' } : null,
+        isFlipped: false,
+        candyTokensOnTile: 0,
+        isClosed: !isHillHouse, // Only center tile is reachable
+        bucketVisits: {},
+      });
+    }
+    board.push(hillRow);
+  }
+
   return {
     board,
     houseDeck: houseDeck.slice(houseIndex),
@@ -107,6 +128,7 @@ export function setupNewNeighborhood(
   const players = state.players.map((p) => ({
     ...p,
     pawnPosition: devSkipToMansion ? { row: 4, column: 0 } : null,
+    roundCandy: 0,
     isHome: false,
     skipNextTurn: false,
   }));

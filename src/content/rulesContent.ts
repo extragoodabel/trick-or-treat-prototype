@@ -39,7 +39,7 @@ When you move to a tile:
 
 **Item 🎁** — Draw a random item card. Items can help (Flashlight, Shortcut) or hurt (Rotten Apple, Pennies).
 
-**Monster 👻🧟💀** — Each monster has a different effect. Some steal candy, some swap hands, some make you skip a turn. Match your costume to a monster to be immune!
+**Monster 👻🧟💀** — Each monster has a different effect. Some steal candy, some swap hands, some make you skip a turn. Match your costume to a monster to be immune! Goblin and Witch only affect players still on the board—players at home are safe.
 
 **Ender 🏚️** — The round ends immediately. Anyone still on the board loses their candy for that round. Go home before it's too late!
 
@@ -49,9 +49,13 @@ When you move to a tile:
     id: 'going-home',
     icon: '🏠',
     title: 'Going Home',
-    content: `When you choose to Go Home, your candy is safe for the round. You're done—no more moves until the next neighborhood.
+    content: `When you choose to Go Home, your **round candy** is safe for the rest of that neighborhood. At the end of the neighborhood, it becomes **permanently banked** and cannot be lost in future rounds.
 
-**Warning:** If the Ender is flipped while you're still on the board, you lose all candy you collected that round. Don't stay out too long!`,
+**Two candy types:** 🏦 **Banked** = permanent score from previous neighborhoods. 🍬 **Round** = candy collected this neighborhood, at risk until you go home.
+
+**You're safe at home:** Players at home cannot be targeted by monsters (Goblin theft, Witch swaps), items, or any player effects. Your candy and items are protected.
+
+**Warning:** If the Ender is flipped while you're still on the board, you lose all round candy. Banked candy is never lost. Don't stay out too long!`,
   },
   {
     id: 'winning',
@@ -63,7 +67,7 @@ When you move to a tile:
     id: 'board-navigation',
     icon: '🗺️',
     title: 'Board Navigation',
-    content: `• Players begin in the **Starting Block** (first row)
+    content: `• Players begin on **Salem Ct.** (first row)
 • Move deeper into the neighborhood **row by row**
 • **Mansion Row** is the final and riskiest row
 • Movement is **orthogonally adjacent only** — up, down, left, or right. No diagonal movement.`,
@@ -74,7 +78,7 @@ When you move to a tile:
     title: 'Symbols & Icons',
     content: `**Candy & Items:** 🍬 candy • 🍫 Full Size Bar • 🔦 Flashlight • 🗺️ Shortcut • 😈 Naughty Kid • 🪥 Toothbrush • 🪙 Pennies • 🍎 Rotten Apple
 
-**Monsters & Costumes:** 👻 Ghost • 🧟 Zombie • 🧙‍♀️ Witch • 💀 Skeleton • 🐺 Werewolf • 👺 Goblin
+**Monsters & Costumes:** 👻 Ghost • 🧟 Zombie • 🧙‍♀️ Witch • 💀 Skeleton • 🐺 Werewolf • 👺 Goblin • 🧛 Vampire
 
 **Board:** 🏠 house (face-down) • 🎁 item tile • 🏚️ Ender`,
   },

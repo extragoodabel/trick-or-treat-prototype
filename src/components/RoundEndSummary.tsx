@@ -6,7 +6,7 @@ interface RoundEndSummaryProps {
 }
 
 export function RoundEndSummary({ state, onContinue }: RoundEndSummaryProps) {
-  const isFinalRound = state.roundNumber + 1 >= 3;
+  const isFinalRound = state.roundNumber + 1 >= state.totalRounds;
   const recapLines = state.turnLog.slice(-8);
 
   return (
@@ -20,7 +20,7 @@ export function RoundEndSummary({ state, onContinue }: RoundEndSummaryProps) {
           {state.players.map((p) => (
             <div key={p.id} className="round-end-player-row">
               <span className="player-name">{p.name}</span>
-              <span className="player-candy">🍬 {p.candyTokens} candy</span>
+              <span className="player-candy">🏦 {p.bankedCandy} banked</span>
               <span className="player-items">📦 {p.itemCards.length} items</span>
               <span className="player-status">
                 {p.isHome ? '🏠 Went home safely' : '⚠️ Still out when Ender appeared'}

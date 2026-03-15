@@ -80,7 +80,7 @@ export function CollectibleFlyAnimation({
         <>
           {createPortal(
             <div
-              className="collectible-fly collectible-fly--item"
+              className={`collectible-fly collectible-fly--item ${['Toothbrush', 'Pennies', 'RottenApple'].includes(lastRevealedItem.itemType) ? 'collectible-fly--negative' : ''}`}
               style={{
                 position: 'fixed',
                 left: itemRects.start.left + itemRects.start.width / 2 - half,

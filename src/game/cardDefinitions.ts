@@ -1,7 +1,7 @@
 import type { TileCard, ItemCard, ItemCardType } from './types';
 import { GAME_RULES } from './gameRules';
 
-const MONSTER_TYPES = ['Ghost', 'Zombie', 'Witch', 'Skeleton', 'Werewolf', 'Goblin'] as const;
+const MONSTER_TYPES = ['Ghost', 'Zombie', 'Witch', 'Skeleton', 'Werewolf', 'Goblin', 'Vampire'] as const;
 
 function createMonsters(count: number): TileCard[] {
   const cards: TileCard[] = [];

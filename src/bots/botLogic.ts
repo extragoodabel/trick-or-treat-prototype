@@ -97,14 +97,19 @@ function scoreMove(
     return -2; // Already collected, no benefit
   }
 
-  // Productive: Item tile (we can draw)
-  if (tile.card?.type === 'Item') return 6;
+  // Productive: Item tile (we can draw) - only if not yet used
+  if (tile.card?.type === 'Item') {
+    return tile.itemCollected ? -2 : 6;
+  }
 
   // Non-productive: Monster (we trigger effect, no gain)
   if (tile.card?.type === 'Monster') return 1;
 
   // Non-productive: Ender (round ends, but we might not want to trigger)
   if (tile.card?.type === 'Ender') return 2;
+
+  // House on the Hill: 10-point prize, game ends - high priority in Neighborhood 3
+  if (tile.card?.type === 'HouseOnHill') return 15;
 
   // Empty bucket, already-collected bucket, etc.
   return -1;
@@ -193,13 +198,13 @@ function evaluateItemPlay(state: GameState, player: Player): BotAction | null {
       }
     }
     if (item.type === 'Flashlight') {
-      const monsterTile = findMonsterToRemove(state, player);
-      if (monsterTile) {
+      const target = findFlashlightTarget(state, player);
+      if (target) {
         return {
           type: 'playItem',
-          logMessage: `${player.name} used Flashlight to remove monster at ${formatTileLocation(monsterTile.row, monsterTile.col)}`,
+          logMessage: `${player.name} used Flashlight on ${formatTileLocation(target.row, target.col)}`,
           item,
-          targetTile: { row: monsterTile.row, col: monsterTile.col },
+          targetTile: { row: target.row, col: target.col },
         };
       }
     }
@@ -241,14 +246,20 @@ function findBestShortcutTarget(state: GameState, player: Player): { row: number
   return best ? { row: best.row, col: best.col } : null;
 }
 
-function findMonsterToRemove(state: GameState, player: Player): { row: number; col: number } | null {
+/** Prefer flipped monsters (remove), then face-down tiles (reveal). */
+function findFlashlightTarget(state: GameState, player: Player): { row: number; col: number } | null {
+  let flippedMonster: { row: number; col: number } | null = null;
+  let faceDown: { row: number; col: number } | null = null;
   for (let r = 0; r < state.board.length; r++) {
     for (let c = 0; c < state.board[r].length; c++) {
       const t = state.board[r][c];
-      if (t.card?.type === 'Monster' && t.isFlipped) {
-        if (t.card.monsterType !== player.costume) return { row: r, col: c };
+      if (!t || t.isClosed || !t.card) continue;
+      if (t.card.type === 'Monster' && t.isFlipped && t.card.monsterType !== player.costume) {
+        flippedMonster = { row: r, col: c };
+      } else if (!t.isFlipped && !faceDown) {
+        faceDown = { row: r, col: c };
       }
     }
   }
-  return null;
+  return flippedMonster ?? faceDown;
 }

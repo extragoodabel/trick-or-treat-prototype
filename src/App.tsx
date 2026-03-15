@@ -1,11 +1,12 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import type { GameState, CostumeType, ControllerType } from './game/types';
+import type { GameState } from './game/types';
 import {
   createNewGame,
   selectAction,
   goHome,
   move,
   playItem,
+  resolveFlashlightReveal,
   endTurn,
   startNextNeighborhood,
   selectStartingPosition,
@@ -26,6 +27,7 @@ import { CollectibleFlyAnimation } from './components/CollectibleFlyAnimation';
 import { WitchSwapAnimation } from './components/WitchSwapAnimation';
 import { GoblinTheftAnimation } from './components/GoblinTheftAnimation';
 import { CandyDeltaIndicator } from './components/CandyDeltaIndicator';
+import { EnderRevealOverlay } from './components/EnderRevealOverlay';
 import type { ItemCard } from './game/types';
 import { formatTurnLogWithIcons } from './utils/formatTurnLog';
 import { getCostumeIcon } from './game/icons';
@@ -35,19 +37,17 @@ import {
   loadBotSpeed,
   saveBotSpeed,
 } from './config/botTiming';
+import { SetupScreen } from './components/SetupScreen';
+import { DEFAULT_GAME_CONFIG, type GameConfig } from './game/gameConfig';
 import './App.css';
-
-const PLAYER_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12'];
-const COSTUMES: CostumeType[] = ['Ghost', 'Zombie', 'Witch', 'Skeleton', 'Werewolf', 'Goblin'];
 
 export default function App() {
   const [state, setState] = useState<GameState | null>(null);
-  const [playerCount, setPlayerCount] = useState(2);
-  const [costumes, setCostumes] = useState<CostumeType[]>(['Ghost', 'Zombie']);
-  const [controllerTypes, setControllerTypes] = useState<ControllerType[]>(['human', 'bot']);
+  const [gameConfig, setGameConfig] = useState<GameConfig>(DEFAULT_GAME_CONFIG);
   const [devRevealAllTiles, setDevRevealAllTiles] = useState(false);
   const [showAllHands, setShowAllHands] = useState(false);
   const [showDevTools, setShowDevTools] = useState(false);
+  const [showMoveLog, setShowMoveLog] = useState(false);
   const [botSpeed, setBotSpeed] = useState<BotSpeed>(loadBotSpeed);
   const [pendingItem, setPendingItem] = useState<ItemCard | null>(null);
   const [showRules, setShowRules] = useState(false);
@@ -56,6 +56,18 @@ export default function App() {
   const animationClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [turnJustChanged, setTurnJustChanged] = useState(false);
   const prevPlayerIndexRef = useRef<number>(0);
+  const [enderMomentComplete, setEnderMomentComplete] = useState(false);
+  const prevEnderRevealRef = useRef(false);
+
+  // Ender reveal: reset moment flag only when first entering roundEnd with lastEnderReveal
+  useEffect(() => {
+    const nowEnder = state?.gamePhase === 'roundEnd' && !!state?.lastEnderReveal;
+    if (nowEnder && !prevEnderRevealRef.current) {
+      setEnderMomentComplete(false);
+      prevEnderRevealRef.current = true;
+    }
+    if (!nowEnder) prevEnderRevealRef.current = false;
+  }, [state?.gamePhase, state?.lastEnderReveal]);
 
   // Turn-start pulse: track when current player changes for brief highlight animation
   useEffect(() => {
@@ -124,11 +136,11 @@ export default function App() {
   }, [state]);
 
   const startGame = useCallback(() => {
-    const gameState = createNewGame(playerCount, costumes as string[], controllerTypes);
+    const gameState = createNewGame(gameConfig);
     setState(gameState);
     setPendingItem(null);
     botLastMoveFromRef.current = {};
-  }, [playerCount, costumes, controllerTypes]);
+  }, [gameConfig]);
 
   const handleBotSpeedChange = useCallback((speed: BotSpeed) => {
     setBotSpeed(speed);
@@ -150,9 +162,60 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [state?.gamePhase, state?.currentPlayerIndex, state?.players, timing.startingPositionDelayMs]);
 
+  // Flashlight phased sequence: beam 400ms → reveal 1100ms → resolve (~1.5s total)
+  const FLASHLIGHT_BEAM_MS = 400;
+  const FLASHLIGHT_REVEAL_MS = 1100;
+  const FLASHLIGHT_TOTAL_MS = FLASHLIGHT_BEAM_MS + FLASHLIGHT_REVEAL_MS;
+  const flashlightRevealIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const fr = state?.flashlightReveal;
+    if (!fr) {
+      flashlightRevealIdRef.current = null;
+      return;
+    }
+    // Include phase in id so we don't skip setting up the resolve timer when phase changes to 'reveal'
+    const id = `${fr.row}-${fr.col}-${fr.phase}`;
+    if (flashlightRevealIdRef.current === id) return;
+    flashlightRevealIdRef.current = id;
+
+    if (fr.phase === 'beam') {
+      const id1 = setTimeout(() => {
+        setState((s) => {
+          if (!s?.flashlightReveal || s.flashlightReveal.phase !== 'beam') return s;
+          const card = s.flashlightReveal.card;
+          let revealMsg = 'Revealed!';
+          if (card.type === 'CandyBucket') revealMsg = 'Candy Bucket revealed!';
+          else if (card.type === 'Monster') revealMsg = `${card.monsterType ?? 'Monster'} revealed!`;
+          else if (card.type === 'Item') revealMsg = 'Item revealed!';
+          return {
+            ...s,
+            message: revealMsg,
+            flashlightReveal: { ...s.flashlightReveal, phase: 'reveal' as const },
+          };
+        });
+      }, FLASHLIGHT_BEAM_MS);
+      const id2 = setTimeout(() => {
+        flashlightRevealIdRef.current = null;
+        setState((s) => (s ? resolveFlashlightReveal(s) : s));
+      }, FLASHLIGHT_TOTAL_MS);
+      return () => {
+        clearTimeout(id1);
+        clearTimeout(id2);
+      };
+    } else {
+      // phase === 'reveal': set up resolve timer (effect re-ran because phase changed; previous timers were cleared)
+      const id2 = setTimeout(() => {
+        flashlightRevealIdRef.current = null;
+        setState((s) => (s ? resolveFlashlightReveal(s) : s));
+      }, FLASHLIGHT_REVEAL_MS);
+      return () => clearTimeout(id2);
+    }
+  }, [state?.flashlightReveal]);
+
   // Bot turn automation
   useEffect(() => {
     if (!state || state.gamePhase !== 'playing') return;
+    if (state.flashlightReveal) return;
     const currentPlayer = state.players[state.currentPlayerIndex];
     if (currentPlayer.controllerType !== 'bot' || currentPlayer.isHome || currentPlayer.skipNextTurn) {
       return;
@@ -202,6 +265,7 @@ export default function App() {
   const handleTileClick = useCallback(
     (row: number, col: number) => {
       if (!state) return;
+      if (state.flashlightReveal) return;
       if (state.gamePhase === 'chooseStartingPosition') {
         const currentPlayer = state.players[state.currentPlayerIndex];
         if (currentPlayer.controllerType === 'human') {
@@ -229,110 +293,40 @@ export default function App() {
   const handlePlayItem = useCallback(
     (item: ItemCard) => {
       if (!state) return;
-      if (item.type === 'Shortcut' || item.type === 'NaughtyKid' || item.type === 'Flashlight') {
+      const targetedTypes = ['Shortcut', 'NaughtyKid', 'Flashlight'];
+      const needsTarget = targetedTypes.includes(item.type);
+      if (needsTarget) {
+        if (pendingItem?.id === item.id) {
+          setPendingItem(null);
+          setState(selectAction(state, 'move'));
+          return;
+        }
         setPendingItem(item);
-        setState({ ...state, message: `Choose target for ${item.type}` });
+        setState({ ...selectAction(state, 'playItem'), message: `Choose target for ${item.type}` });
       } else {
         setState(playItem(state, item));
       }
     },
-    [state]
+    [state, pendingItem]
   );
 
   if (!state) {
     return (
-      <div className="app setup-screen">
-        <header className="setup-header">
-          <h1>Trick or Treat v0.5</h1>
-          <button type="button" className="rules-btn" onClick={() => setShowRules(true)}>
-            Rules
-          </button>
-        </header>
-        <div className="setup-form">
-          <label>
-            Players: {playerCount}
-            <input
-              type="range"
-              min={2}
-              max={4}
-              value={playerCount}
-              onChange={(e) => {
-                const n = parseInt(e.target.value, 10);
-                setPlayerCount(n);
-                setCostumes((prev) => {
-                  const next = [...prev];
-                  while (next.length < n) {
-                    next.push(COSTUMES[next.length % COSTUMES.length]);
-                  }
-                  return next.slice(0, n);
-                });
-                setControllerTypes((prev) => {
-                  const next = [...prev];
-                  while (next.length < n) next.push('human');
-                  return next.slice(0, n);
-                });
-              }}
-            />
-          </label>
-          {Array.from({ length: playerCount }, (_, i) => (
-            <div key={i} className="player-setup-row">
-              <label>
-                Seat {i + 1}:
-                <select
-                  value={controllerTypes[i] || 'human'}
-                  onChange={(e) => {
-                    const v = e.target.value as ControllerType;
-                    setControllerTypes((prev) => {
-                      const next = [...prev];
-                      next[i] = v;
-                      return next;
-                    });
-                  }}
-                >
-                  <option value="human">Human</option>
-                  <option value="bot">Bot</option>
-                </select>
-              </label>
-              <label>
-                Costume:
-                <select
-                  value={costumes[i] || COSTUMES[0]}
-                  onChange={(e) => {
-                    const v = e.target.value as CostumeType;
-                    setCostumes((prev) => {
-                      const next = [...prev];
-                      next[i] = v;
-                      return next;
-                    });
-                  }}
-                >
-                  {COSTUMES.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          ))}
-          <p className="setup-hint">
-            At least one human required. Examples: 1 human + 3 bots, 2 humans + 2 bots, 4 humans.
-          </p>
-          <button
-            type="button"
-            onClick={startGame}
-            disabled={!controllerTypes.some((c) => c === 'human')}
-          >
-            Start Game
-          </button>
-        </div>
+      <>
+        <SetupScreen
+          config={gameConfig}
+          onConfigChange={setGameConfig}
+          onStartGame={startGame}
+          onShowRules={() => setShowRules(true)}
+        />
         {showRules && <RulesModal onClose={() => setShowRules(false)} />}
-      </div>
+      </>
     );
   }
 
   if (state.gamePhase === 'gameOver') {
     const scores = getFinalScores(state);
+    const hillMessage = state.message?.includes('House on the Hill');
     return (
       <div className="app game-over">
         <header className="game-over-header">
@@ -341,10 +335,13 @@ export default function App() {
             Rules
           </button>
         </header>
+        {hillMessage && (
+          <p className="game-over-message">{state.message}</p>
+        )}
         <div className="scores">
           {scores.map((s, i) => (
             <div key={s.playerId} className="score-row">
-              #{i + 1} {s.name}: {s.score} pts
+              #{i + 1} {s.name}: {Number.isFinite(s.score) ? s.score : 0} pts
             </div>
           ))}
         </div>
@@ -364,7 +361,7 @@ export default function App() {
         <header className="app-header">
           <h1 className="app-title">Trick or Treat v0.5</h1>
           <p className="round-info">
-            Neighborhood {state.roundNumber + 1}/3 • Choose starting houses
+            Neighborhood {state.roundNumber + 1}/{state.totalRounds} • Choose starting houses
           </p>
           <button type="button" className="rules-btn" onClick={() => setShowRules(true)}>
             Rules
@@ -384,15 +381,28 @@ export default function App() {
                   player={player}
                   playerIndex={i}
                   isCurrent={player.id === choosingPlayer.id}
-                  color={PLAYER_COLORS[i]}
-                  showHand={showAllHands || player.controllerType === 'human'}
+                  color={state.playerColors[i]}
+                  showHand={showAllHands || player.controllerType === 'human' || player.handRevealed}
                   isAffected={false}
                 />
               ))}
             </div>
-            <div className="turn-log turn-log--secondary">
-              <h3>Move History</h3>
-              <ul />
+            <div className="turn-log turn-log--secondary turn-log--collapsible">
+              <button
+                type="button"
+                className="turn-log-toggle"
+                onClick={() => setShowMoveLog((v) => !v)}
+                aria-expanded={showMoveLog}
+              >
+                <span className="turn-log-toggle-label">Move History</span>
+                <span className="turn-log-toggle-latest">—</span>
+                <span className="turn-log-toggle-icon">{showMoveLog ? '▼' : '▶'}</span>
+              </button>
+              {showMoveLog && (
+                <div className="turn-log-content">
+                  <ul />
+                </div>
+              )}
             </div>
             <div className="bot-speed-control">
               <span className="bot-speed-label">Bot Speed</span>
@@ -437,7 +447,7 @@ export default function App() {
                     state={state}
                     onTileClick={handleTileClick}
                     devRevealAll={devRevealAllTiles}
-                    playerColors={PLAYER_COLORS}
+                    playerColors={state.playerColors}
                   />
                 </div>
               </div>
@@ -450,53 +460,62 @@ export default function App() {
   }
 
   if (state.gamePhase === 'roundEnd') {
-    return (
-      <div className="app">
-        <header className="header header--with-rules">
-          <h1>Trick or Treat v0.5</h1>
-          <button type="button" className="rules-btn" onClick={() => setShowRules(true)}>
-            Rules
-          </button>
-        </header>
-        <RoundEndSummary
-          state={state}
-          onContinue={() => {
-            botLastMoveFromRef.current = {};
-            setState(startNextNeighborhood(state));
-          }}
-        />
-        {showRules && <RulesModal onClose={() => setShowRules(false)} />}
-      </div>
-    );
+    const showEnderMoment = state.lastEnderReveal && !enderMomentComplete;
+    if (!showEnderMoment) {
+      return (
+        <div className="app">
+          <header className="header header--with-rules">
+            <h1>Trick or Treat v0.5</h1>
+            <button type="button" className="rules-btn" onClick={() => setShowRules(true)}>
+              Rules
+            </button>
+          </header>
+          <RoundEndSummary
+            state={state}
+            onContinue={() => {
+              botLastMoveFromRef.current = {};
+              setState(startNextNeighborhood(state));
+            }}
+          />
+          {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+        </div>
+      );
+    }
+    // Fall through to render game view with Ender reveal overlay
   }
 
   const currentPlayer = state.players[state.currentPlayerIndex];
   const isHumanTurn = currentPlayer.controllerType === 'human';
-  const canAct = isHumanTurn && !currentPlayer.isHome && !currentPlayer.skipNextTurn;
-  const currentPlayerColor = PLAYER_COLORS[state.currentPlayerIndex] ?? '#fff';
+  const isFlashlightReveal = !!state.flashlightReveal;
+  const canAct = isHumanTurn && !currentPlayer.isHome && !currentPlayer.skipNextTurn && !isFlashlightReveal;
+  const currentPlayerColor = state.playerColors[state.currentPlayerIndex] ?? '#fff';
+  const isEnderRevealMoment =
+    state.gamePhase === 'roundEnd' && !!state.lastEnderReveal && !enderMomentComplete;
 
-  // Live status: consequence message takes priority when present, else last turn log
+  // Live status: flashlight message during reveal, else consequence, else last turn log
   const lastLogEntry = state.turnLog[state.turnLog.length - 1];
   const consequenceMsg = state.lastConsequenceMessage;
   const liveStatusText =
-    canAct && isHumanTurn
-      ? 'Your Turn — choose an adjacent house to move'
-      : !canAct && isHumanTurn
-        ? `${currentPlayer.name}'s Turn`
-        : !isHumanTurn && !lastLogEntry && !consequenceMsg
-          ? `${currentPlayer.name} (Bot)'s Turn — deciding…`
-          : consequenceMsg
-            ? formatTurnLogWithIcons(consequenceMsg)
-            : lastLogEntry
-              ? formatTurnLogWithIcons(lastLogEntry)
-              : `${currentPlayer.name}'s Turn`;
+    isFlashlightReveal
+      ? formatTurnLogWithIcons(state.message)
+      : canAct && isHumanTurn
+        ? 'Your Turn — choose an adjacent house to move'
+        : !canAct && isHumanTurn
+          ? `${currentPlayer.name}'s Turn`
+          : !isHumanTurn && !lastLogEntry && !consequenceMsg
+            ? `${currentPlayer.name} (Bot)'s Turn — deciding…`
+            : consequenceMsg
+              ? formatTurnLogWithIcons(consequenceMsg)
+              : lastLogEntry
+                ? formatTurnLogWithIcons(lastLogEntry)
+                : `${currentPlayer.name}'s Turn`;
 
   return (
-    <div className="app app--game-view">
+    <div className={`app app--game-view${isEnderRevealMoment ? ' app--ender-reveal' : ''}`}>
       <header className="app-header">
         <h1 className="app-title">Trick or Treat v0.5</h1>
         <p className="round-info">
-          Neighborhood {state.roundNumber + 1}/3 • Candy: {state.candySupply}
+          Neighborhood {state.roundNumber + 1}/{state.totalRounds} • Candy: {state.candySupply}
         </p>
         <button type="button" className="rules-btn" onClick={() => setShowRules(true)}>
           Rules
@@ -513,29 +532,46 @@ export default function App() {
                 player={player}
                 playerIndex={i}
                 isCurrent={player.id === currentPlayer.id}
-                color={PLAYER_COLORS[i]}
+                color={state.playerColors[i]}
                 turnJustChanged={turnJustChanged && player.id === currentPlayer.id}
                 onPlayItem={handlePlayItem}
-                canPlayItem={
-                  canAct &&
-                  state.selectedAction === 'playItem' &&
-                  player.id === currentPlayer.id
-                }
-                showHand={showAllHands || player.controllerType === 'human'}
+                canPlayItem={canAct && player.id === currentPlayer.id}
+                selectedItem={player.id === currentPlayer.id ? pendingItem : null}
+                showHand={showAllHands || player.controllerType === 'human' || player.handRevealed}
                 isAffected={state.lastAffectedPlayerIds?.includes(player.id) ?? false}
+                isGoblinVictim={!!(state.lastGoblinTheft && state.lastGoblinTheft.fromPlayerIndex === i)}
+                isGoblinThief={!!(state.lastGoblinTheft && state.lastGoblinTheft.toPlayerIndex === i)}
+                isWitchSwapParticipant={!!(state.lastWitchSwap && (state.lastWitchSwap.fromPlayerIndex === i || state.lastWitchSwap.toPlayerIndex === i))}
               />
             ))}
           </div>
-          <div className="turn-log turn-log--secondary">
-            <h3>Move History</h3>
-            {state.lastActionDescription && state.lastAffectedPlayerIds && state.lastAffectedPlayerIds.length > 0 && (
-              <p className="turn-log-affected">{state.lastActionDescription}</p>
+          <div className="turn-log turn-log--secondary turn-log--collapsible">
+            <button
+              type="button"
+              className="turn-log-toggle"
+              onClick={() => setShowMoveLog((v) => !v)}
+              aria-expanded={showMoveLog}
+            >
+              <span className="turn-log-toggle-label">Move History</span>
+              <span className="turn-log-toggle-latest">
+                {state.turnLog[state.turnLog.length - 1]
+                  ? formatTurnLogWithIcons(state.turnLog[state.turnLog.length - 1])
+                  : '—'}
+              </span>
+              <span className="turn-log-toggle-icon">{showMoveLog ? '▼' : '▶'}</span>
+            </button>
+            {showMoveLog && (
+              <div className="turn-log-content">
+                {state.lastActionDescription && state.lastAffectedPlayerIds && state.lastAffectedPlayerIds.length > 0 && (
+                  <p className="turn-log-affected">{state.lastActionDescription}</p>
+                )}
+                <ul>
+                  {state.turnLog.slice(-12).map((msg, i) => (
+                    <li key={i}>{formatTurnLogWithIcons(msg)}</li>
+                  ))}
+                </ul>
+              </div>
             )}
-            <ul>
-              {state.turnLog.slice(-12).map((msg, i) => (
-                <li key={i}>{formatTurnLogWithIcons(msg)}</li>
-              ))}
-            </ul>
           </div>
           <div className="bot-speed-control">
             <span className="bot-speed-label">Bot Speed</span>
@@ -625,7 +661,7 @@ export default function App() {
               <span className="live-status-costume">{getCostumeIcon(currentPlayer.costume)}</span>
               <span className="live-status-text">{liveStatusText}</span>
             </div>
-            <div className="board-area">
+            <div className={`board-area${isEnderRevealMoment ? ' board-area--ender-shake' : ''}`}>
               <div className="neighborhood-board">
                 <div className="neighborhood-decor neighborhood-pumpkins" aria-hidden="true">🎃</div>
                 <div className="neighborhood-decor neighborhood-bats" aria-hidden="true">🦇</div>
@@ -633,7 +669,8 @@ export default function App() {
                   state={state}
                   onTileClick={handleTileClick}
                   devRevealAll={devRevealAllTiles}
-                  playerColors={PLAYER_COLORS}
+                  playerColors={state.playerColors}
+                  pendingItem={pendingItem}
                 />
               </div>
             </div>
@@ -642,22 +679,40 @@ export default function App() {
                 <>
                   <button
                     type="button"
-                    onClick={() => setState(selectAction(state, 'move'))}
+                    onClick={() => {
+                      setPendingItem(null);
+                      setState(selectAction(state, 'move'));
+                    }}
                     className={state.selectedAction === 'move' ? 'active' : ''}
                   >
                     Move
                   </button>
-                  <button type="button" onClick={() => setState(goHome(state))}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingItem(null);
+                      setState(goHome(state));
+                    }}
+                  >
                     Go Home
                   </button>
                   <button
                     type="button"
-                    onClick={() => setState(selectAction(state, 'playItem'))}
+                    onClick={() => {
+                      setPendingItem(null);
+                      setState(selectAction(state, 'playItem'));
+                    }}
                     className={state.selectedAction === 'playItem' ? 'active' : ''}
                   >
                     Play Item
                   </button>
-                  <button type="button" onClick={() => setState(endTurn(state))}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingItem(null);
+                      setState(endTurn(state));
+                    }}
+                  >
                     End Turn
                   </button>
                   {!pendingItem && (
@@ -697,6 +752,9 @@ export default function App() {
         {state.lastCandyDeltas?.map((d, i) => (
           <CandyDeltaIndicator key={i} playerIndex={d.playerIndex} delta={d.delta} />
         ))}
+        {isEnderRevealMoment && (
+          <EnderRevealOverlay onComplete={() => setEnderMomentComplete(true)} />
+        )}
       </div>
     </div>
   );

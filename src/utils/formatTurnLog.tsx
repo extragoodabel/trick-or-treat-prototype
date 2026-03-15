@@ -20,7 +20,10 @@ const REPLACEMENTS: [RegExp, string][] = [
   [/\bSkeleton\b/g, '💀 Skeleton'],
   [/\bWerewolf\b/g, '🐺 Werewolf'],
   [/\bGoblin\b/g, '👺 Goblin'],
+  [/\bVampire\b/g, '🧛 Vampire'],
   [/\bEnder\b/g, '🏚️ Ender'],
+  [/\bHouse on the Hill\b/g, '🏆 House on the Hill'],
+  [/\bKing Size\b/g, '🍫 King Size'],
   [/\bwent home\b/g, 'went 🏠 home'],
 ];
 

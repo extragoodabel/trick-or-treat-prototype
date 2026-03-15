@@ -1,4 +1,6 @@
 import type { GameState, Player, Tile, ItemCard } from './types';
+import { getTotalCandy } from './types';
+import { resolveCostumes, resolveColors, type GameConfig } from './gameConfig';
 import { GAME_RULES } from './gameRules';
 import {
   createItemCard,
@@ -10,12 +12,11 @@ import { isOrthogonallyAdjacent } from './movement';
 
 // --- Game setup ---
 
-export function createNewGame(
-  playerCount: number,
-  costumes: string[],
-  controllerTypes?: ('human' | 'bot')[]
-): GameState {
-  const players = createInitialPlayers(playerCount, costumes, controllerTypes);
+export function createNewGame(config: GameConfig): GameState {
+  const { playerCount, costumes, colors, controllerTypes, totalRounds } = config;
+  const resolvedCostumes = resolveCostumes(costumes.slice(0, playerCount));
+  const playerColors = resolveColors(colors.slice(0, playerCount));
+  const players = createInitialPlayers(playerCount, resolvedCostumes, controllerTypes);
   const baseState: GameState = {
     players,
     currentPlayerIndex: 0,
@@ -24,6 +25,8 @@ export function createNewGame(
     mansionDeck: [],
     candySupply: GAME_RULES.initialCandySupply,
     roundNumber: 0,
+    totalRounds,
+    playerColors,
     gamePhase: 'playing',
     selectedAction: null,
     pendingItemPlay: null,
@@ -105,7 +108,7 @@ function resolveCandyBucket(
 
     players[playerIdx] = {
       ...players[playerIdx],
-      candyTokens: players[playerIdx].candyTokens + flipperCollects,
+      roundCandy: players[playerIdx].roundCandy + flipperCollects,
     };
     bucketVisits[playerId] = 1;
 
@@ -134,7 +137,7 @@ function resolveCandyBucket(
       const collect = 1;
       players[playerIdx] = {
         ...players[playerIdx],
-        candyTokens: players[playerIdx].candyTokens + collect,
+        roundCandy: players[playerIdx].roundCandy + collect,
       };
       bucketVisits[playerId] = visits + 1;
 
@@ -199,6 +202,11 @@ function isImmune(costume: string, monsterType?: string): boolean {
   return costume === monsterType;
 }
 
+/** Players still on the board (not home). Safe from targeting by effects. */
+function playersOnBoard(players: Player[]): Player[] {
+  return players.filter((p) => !p.isHome);
+}
+
 function resolveMonster(
   state: GameState,
   tile: Tile,
@@ -236,7 +244,7 @@ function resolveMonster(
       const lost = GAME_RULES.ghostLoseTokens;
       players[playerIdx] = {
         ...player,
-        candyTokens: Math.max(0, player.candyTokens - lost),
+        roundCandy: Math.max(0, player.roundCandy - lost),
       };
       return withAffected(
         { ...state, players, message: `${player.name} lost 3 candy to Ghost!` },
@@ -249,7 +257,23 @@ function resolveMonster(
       );
     }
 
-    case 'Zombie':
+    case 'Zombie': {
+      const active = playersOnBoard(players);
+      if (active.length === 1) {
+        players[playerIdx] = { ...player, isHome: true };
+        const bankedPlayers = players.map((p) => ({
+          ...p,
+          bankedCandy: p.bankedCandy + p.roundCandy,
+          roundCandy: 0,
+        }));
+        return {
+          ...state,
+          players: bankedPlayers,
+          gamePhase: 'roundEnd',
+          message: 'Zombie encountered! With no other players left outside, you hurry home.',
+          lastConsequenceMessage: 'Zombie encountered! With no other players left outside, you hurry home.',
+        };
+      }
       players[playerIdx] = { ...player, skipNextTurn: true };
       return withAffected(
         { ...state, players, message: `${player.name} skips next turn (Zombie)!` },
@@ -257,11 +281,13 @@ function resolveMonster(
         'skips next turn (Zombie)',
         { lastConsequenceMessage: `${player.name} skips next turn (Zombie)` }
       );
+    }
 
     case 'Witch': {
-      const otherIdx = players.findIndex((p) => p.id !== playerId);
-      if (otherIdx !== -1) {
-        const other = players[otherIdx];
+      const active = playersOnBoard(players);
+      const other = active.find((p) => p.id !== playerId);
+      if (other) {
+        const otherIdx = players.findIndex((p) => p.id === other.id);
         const temp = players[playerIdx].itemCards;
         players[playerIdx] = { ...player, itemCards: players[otherIdx].itemCards };
         players[otherIdx] = { ...players[otherIdx], itemCards: temp };
@@ -275,20 +301,22 @@ function resolveMonster(
           }
         );
       }
-      return { ...state, players, message: `${player.name} swapped hands with Witch!` };
+      return { ...state, players, message: `${player.name} triggered Witch (no other players on board to swap with)!` };
     }
 
-    case 'Skeleton':
+    case 'Skeleton': {
+      players[playerIdx] = { ...player, handRevealed: true };
       return withAffected(
-        { ...state, message: `${player.name} revealed hand (Skeleton)!` },
+        { ...state, players, message: `${player.name} revealed hand (Skeleton)!` },
         [player.id],
         'revealed hand (Skeleton)',
         { lastConsequenceMessage: `${player.name} revealed hand (Skeleton)` }
       );
+    }
 
     case 'Werewolf': {
-      const lost = Math.floor(player.candyTokens / 2);
-      players[playerIdx] = { ...player, candyTokens: player.candyTokens - lost };
+      const lost = Math.floor(player.roundCandy / 2);
+      players[playerIdx] = { ...player, roundCandy: player.roundCandy - lost };
       return withAffected(
         { ...state, players, message: `${player.name} lost half candy to Werewolf!` },
         [player.id],
@@ -301,11 +329,12 @@ function resolveMonster(
     }
 
     case 'Goblin': {
-      const sorted = [...players].sort(
+      const active = playersOnBoard(players).filter((p) => p.id !== playerId);
+      const sorted = [...active].sort(
         (a, b) => a.itemCards.length - b.itemCards.length
       );
       const fewest = sorted[0];
-      if (fewest.itemCards.length > 0) {
+      if (fewest && fewest.itemCards.length > 0) {
         const fromIdx = players.findIndex((p) => p.id === fewest.id);
         const takeIdx = Math.floor(Math.random() * fewest.itemCards.length);
         const taken = fewest.itemCards[takeIdx];
@@ -329,7 +358,39 @@ function resolveMonster(
           }
         );
       }
-      return { ...state, players, message: `${player.name} triggered Goblin!` };
+      return { ...state, players, message: `${player.name} triggered Goblin (no other players on board with items)!` };
+    }
+
+    case 'Vampire': {
+      if (player.roundCandy < 1) {
+        return { ...state, message: `${player.name} has no candy to give (Vampire)!` };
+      }
+      const totals = players.map((p, i) => ({ idx: i, total: getTotalCandy(p) }));
+      const minTotal = Math.min(...totals.map((t) => t.total));
+      const leastCandy = totals.filter((t) => t.total === minTotal && t.idx !== playerIdx);
+      if (leastCandy.length === 0) {
+        return { ...state, message: `${player.name} already has the least candy (Vampire)!` };
+      }
+      const recipient = leastCandy[Math.floor(Math.random() * leastCandy.length)];
+      const recipientIdx = recipient!.idx;
+      players[playerIdx] = { ...player, roundCandy: player.roundCandy - 1 };
+      players[recipientIdx] = {
+        ...players[recipientIdx],
+        roundCandy: players[recipientIdx].roundCandy + 1,
+      };
+      const recipientName = players[recipientIdx].name;
+      return withAffected(
+        { ...state, players, message: `${player.name} gave 1 candy to ${recipientName} (Vampire)!` },
+        [player.id, players[recipientIdx].id],
+        `gave 1 candy to ${recipientName} (Vampire)`,
+        {
+          lastConsequenceMessage: `${player.name} gave 1 candy to ${recipientName} (Vampire)`,
+          lastCandyDeltas: [
+            { playerIndex: playerIdx, delta: -1 },
+            { playerIndex: recipientIdx, delta: 1 },
+          ],
+        }
+      );
     }
 
     default:
@@ -337,15 +398,34 @@ function resolveMonster(
   }
 }
 
-function resolveEnder(state: GameState): GameState {
+function resolveHouseOnHill(state: GameState, playerId: string): GameState {
+  const points = GAME_RULES.houseOnHillPoints;
   const players = state.players.map((p) =>
-    p.isHome ? p : { ...p, candyTokens: 0 }
+    p.id === playerId ? { ...p, bankedCandy: p.bankedCandy + points } : p
   );
+  const player = players.find((p) => p.id === playerId)!;
+  return {
+    ...state,
+    players,
+    gamePhase: 'gameOver',
+    message: `${player.name} reached the House on the Hill and found the 10-point King Size prize! Game over.`,
+    lastConsequenceMessage: `${player.name} reached the House on the Hill and found the 10-point King Size prize!`,
+  };
+}
+
+function resolveEnder(state: GameState): GameState {
+  const players = state.players.map((p) => {
+    if (p.isHome) {
+      return { ...p, bankedCandy: p.bankedCandy + p.roundCandy, roundCandy: 0 };
+    }
+    return { ...p, roundCandy: 0 };
+  });
   return {
     ...state,
     players,
     gamePhase: 'roundEnd',
     message: 'Ender! All players not home lost their candy.',
+    lastEnderReveal: true,
   };
 }
 
@@ -395,9 +475,14 @@ export function goHome(state: GameState): GameState {
   const withLog = appendToTurnLog(state, `${player.name} went home`);
   const allHome = updatedPlayers.every((p) => p.isHome);
   if (allHome) {
+    const bankedPlayers = updatedPlayers.map((p) => ({
+      ...p,
+      bankedCandy: p.bankedCandy + p.roundCandy,
+      roundCandy: 0,
+    }));
     return {
       ...withLog,
-      players: updatedPlayers,
+      players: bankedPlayers,
       currentPlayerIndex: 0,
       selectedAction: null,
       gamePhase: 'roundEnd',
@@ -499,7 +584,7 @@ export function move(state: GameState, row: number, col: number): GameState {
 
   let candyCollected = 0;
   if (card.type === 'CandyBucket') {
-    const candyBefore = newState.players[state.currentPlayerIndex].candyTokens;
+    const candyBefore = newState.players[state.currentPlayerIndex].roundCandy;
     if (isFlip) {
       newState = resolveCandyBucket(newState, { ...tile, isFlipped: true }, player.id, true);
       newState = appendToTurnLog(newState, isSameTile ? `${player.name} flipped Candy Bucket at ${location}` : `${player.name} moved to ${location} and flipped Candy Bucket`);
@@ -507,19 +592,32 @@ export function move(state: GameState, row: number, col: number): GameState {
       newState = resolveCandyBucket(newState, tile, player.id, false);
       newState = appendToTurnLog(newState, `${player.name} moved to ${location} and collected candy from bucket`);
     }
-    candyCollected = newState.players[state.currentPlayerIndex].candyTokens - candyBefore;
+    candyCollected = newState.players[state.currentPlayerIndex].roundCandy - candyBefore;
   } else if (card.type === 'Item') {
-    const { state: itemState, itemType, itemTypeRaw } = resolveItemTile(newState, player.id);
-    newState = itemState;
-    newState = appendToTurnLog(
-      newState,
-      isFlip
-        ? (isSameTile ? `${player.name} flipped ${itemType} at ${location}` : `${player.name} moved to ${location} and flipped ${itemType}`)
-        : `${player.name} moved to ${location} and drew ${itemType}`
-    );
-    if (isFlip) {
-      (newState as GameState & { _itemType?: string; _itemTypeRaw?: string })._itemType = itemType;
-      (newState as GameState & { _itemType?: string; _itemTypeRaw?: string })._itemTypeRaw = itemTypeRaw;
+    const alreadyUsed = tile.itemCollected === true;
+    if (alreadyUsed) {
+      newState = appendToTurnLog(newState, `${player.name} moved to ${location} (empty gift house)`);
+    } else {
+      const { state: itemState, itemType, itemTypeRaw } = resolveItemTile(newState, player.id);
+      newState = itemState;
+      newState = appendToTurnLog(
+        newState,
+        isFlip
+          ? (isSameTile ? `${player.name} flipped ${itemType} at ${location}` : `${player.name} moved to ${location} and flipped ${itemType}`)
+          : `${player.name} moved to ${location} and drew ${itemType}`
+      );
+      if (isFlip) {
+        (newState as GameState & { _itemType?: string; _itemTypeRaw?: string })._itemType = itemType;
+        (newState as GameState & { _itemType?: string; _itemTypeRaw?: string })._itemTypeRaw = itemTypeRaw;
+      }
+      newState = {
+        ...newState,
+        board: newState.board.map((r, ri) =>
+          r.map((t, ci) =>
+            ri === row && ci === col ? { ...t, itemCollected: true } : t
+          )
+        ),
+      };
     }
   } else if (card.type === 'Monster') {
     newState = resolveMonster(newState, { ...tile, isFlipped: true }, player.id);
@@ -530,9 +628,19 @@ export function move(state: GameState, row: number, col: number): GameState {
         ? (isSameTile ? `${player.name} flipped ${monsterName} at ${location}` : `${player.name} moved to ${location} and flipped ${monsterName}`)
         : `${player.name} moved to ${location} and triggered ${monsterName}`
     );
+    if (newState.gamePhase === 'roundEnd') {
+      return newState;
+    }
   } else if (card.type === 'Ender') {
     newState = appendToTurnLog(newState, `${player.name} moved to ${location} and flipped Ender`);
     newState = resolveEnder(newState);
+    return newState;
+  } else if (card.type === 'HouseOnHill') {
+    newState = appendToTurnLog(
+      newState,
+      `${player.name} reached the House on the Hill and found the 10-point King Size prize!`
+    );
+    newState = resolveHouseOnHill(newState, player.id);
     return newState;
   }
 
@@ -574,6 +682,10 @@ export function playItem(
   const player = state.players[state.currentPlayerIndex];
   if (player.isHome || player.skipNextTurn) return state;
   if (!player.itemCards.some((c) => c.id === item.id)) return state;
+  if (target?.playerId) {
+    const targetPlayer = state.players.find((p) => p.id === target.playerId);
+    if (!targetPlayer || targetPlayer.isHome) return state;
+  }
   state = clearAffectedState(state);
 
   const players = [...state.players];
@@ -609,7 +721,7 @@ export function playItem(
           const fromSupply = Math.min(GAME_RULES.naughtyKidBonusToken, newState.candySupply);
           players[playerIdx] = {
             ...players[playerIdx],
-            candyTokens: players[playerIdx].candyTokens + tile.candyTokensOnTile + fromSupply,
+            roundCandy: players[playerIdx].roundCandy + tile.candyTokensOnTile + fromSupply,
           };
           newState = {
             ...newState,
@@ -632,25 +744,51 @@ export function playItem(
     case 'Flashlight':
       if (target?.row !== undefined && target?.col !== undefined) {
         const tile = newState.board[target.row]?.[target.col];
-        if (tile?.card?.type === 'Monster') {
-          newState = appendToTurnLog(newState, `${player.name} used Flashlight to remove monster at ${formatTileLocation(target.row, target.col)}`);
+        if (tile && tile.card && !tile.isClosed) {
+          const location = formatTileLocation(target.row, target.col);
+          const card = tile.card;
+          let revealMessage: string;
+          if (card.type === 'Monster') {
+            const monsterName = card.monsterType ?? 'Monster';
+            revealMessage = `${monsterName} revealed and chased away.`;
+          } else if (card.type === 'CandyBucket') {
+            revealMessage = 'Candy Bucket revealed and collected.';
+          } else if (card.type === 'Item') {
+            revealMessage = 'Item revealed and drawn.';
+          } else if (card.type === 'Ender') {
+            revealMessage = 'Ender revealed and triggered.';
+          } else if (card.type === 'HouseOnHill') {
+            revealMessage = 'House on the Hill revealed.';
+          } else {
+            revealMessage = 'Revealed.';
+          }
+          const pawnPos = player.pawnPosition;
+          const fromRow = pawnPos?.row ?? 0;
+          const fromCol = pawnPos?.column ?? 0;
+          newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location}`);
           newState = {
             ...newState,
-            board: newState.board.map((r, ri) =>
-              r.map((t, ci) =>
-                ri === target.row && ci === target.col ? { ...t, card: null } : t
-              )
-            ),
             selectedAction: null,
-            message: `${player.name} used Flashlight to remove monster!`,
+            message: `${player.name} used a flashlight on ${location}.`,
+            flashlightReveal: {
+              row: target.row,
+              col: target.col,
+              fromRow,
+              fromCol,
+              card,
+              playerName: player.name,
+              location,
+              revealMessage,
+              phase: 'beam',
+            },
           };
         } else {
-          newState = appendToTurnLog(newState, `${player.name} used Flashlight (peek)`);
+          newState = appendToTurnLog(newState, `${player.name} used Flashlight (no valid target)`);
           newState = { ...newState, selectedAction: null, message: `${player.name} used Flashlight.` };
         }
       } else {
-        newState = appendToTurnLog(newState, `${player.name} used Flashlight (peek)`);
-        newState = { ...newState, selectedAction: null, message: `${player.name} used Flashlight (peek).` };
+        newState = appendToTurnLog(newState, `${player.name} used Flashlight (no target)`);
+        newState = { ...newState, selectedAction: null, message: `${player.name} used Flashlight.` };
       }
       break;
 
@@ -658,8 +796,132 @@ export function playItem(
       newState = { ...newState, selectedAction: null, message: `${player.name} played ${item.type}.` };
   }
 
+  if (newState.flashlightReveal) {
+    return newState;
+  }
+
   const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state.currentPlayerIndex, newState.players);
   return { ...newState, players: updatedPlayers, currentPlayerIndex: nextIdx };
+}
+
+/**
+ * Resolve flashlight reveal after the brief display phase.
+ * Triggers the tile as if the player landed on it, then marks it spent (spider web).
+ */
+export function resolveFlashlightReveal(state: GameState): GameState {
+  const fr = state.flashlightReveal;
+  if (!fr) return state;
+
+  const tile = state.board[fr.row]?.[fr.col];
+  if (!tile || !tile.card) return clearFlashlightAndAdvance(state);
+
+  const player = state.players[state.currentPlayerIndex];
+  const playerIdx = state.currentPlayerIndex;
+  const card = tile.card;
+  const location = fr.location;
+
+  let newState: GameState = { ...state };
+  newState = clearAffectedState(newState);
+
+  const makeSpent = (s: GameState, extraTileProps?: Partial<Tile>): GameState => ({
+    ...s,
+    board: s.board.map((r, ri) =>
+      r.map((t, ci) =>
+        ri === fr.row && ci === fr.col
+          ? { ...t, isFlipped: true, isSpent: true, ...extraTileProps }
+          : t
+      )
+    ),
+  });
+
+  if (card.type === 'CandyBucket') {
+    const flippedTile = { ...tile, isFlipped: true };
+    newState = resolveCandyBucket(newState, flippedTile, player.id, true);
+    newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — Candy Bucket revealed and collected.`);
+    const candyCollected = newState.players[playerIdx].roundCandy - player.roundCandy;
+    newState = makeSpent(newState, { isClosed: true });
+    if (candyCollected > 0) {
+      newState = {
+        ...newState,
+        lastRevealedCandy: { row: fr.row, col: fr.col, playerIndex: playerIdx, amount: candyCollected },
+        lastConsequenceMessage: `${player.name} found ${candyCollected} candy!`,
+      };
+    }
+  } else if (card.type === 'Item') {
+    if (tile.itemCollected) {
+      newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — empty gift house.`);
+      newState = makeSpent(newState, { itemCollected: true });
+    } else {
+      const { state: itemState, itemType, itemTypeRaw } = resolveItemTile(newState, player.id);
+      newState = itemState;
+      newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — ${itemType} revealed and drawn.`);
+      newState = makeSpent(newState, { itemCollected: true });
+      newState = {
+        ...newState,
+        lastRevealedItem: { row: fr.row, col: fr.col, itemType: itemTypeRaw, playerIndex: playerIdx },
+        lastConsequenceMessage: `Flashlight revealed a ${itemType.toLowerCase()}.`,
+      };
+    }
+  } else if (card.type === 'Monster') {
+    const monsterName = card.monsterType ?? 'Monster';
+    if (card.monsterType === 'Vampire') {
+      newState = resolveMonster(newState, { ...tile, isFlipped: true }, player.id);
+      newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — Vampire revealed and effect triggered.`);
+      newState = {
+        ...newState,
+        board: newState.board.map((r, ri) =>
+          r.map((t, ci) =>
+            ri === fr.row && ci === fr.col ? { ...t, card: null, isFlipped: true, isSpent: true } : t
+          )
+        ),
+      };
+    } else {
+      newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — ${monsterName} revealed and chased away.`);
+      newState = {
+        ...newState,
+        lastConsequenceMessage: `${monsterName} revealed and chased away.`,
+        board: newState.board.map((r, ri) =>
+          r.map((t, ci) =>
+            ri === fr.row && ci === fr.col ? { ...t, card: null, isFlipped: true, isSpent: true } : t
+          )
+        ),
+      };
+    }
+  } else if (card.type === 'Ender') {
+    newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — Ender revealed and triggered.`);
+    newState = resolveEnder(newState);
+    return clearFlashlightFromState(newState);
+  } else if (card.type === 'HouseOnHill') {
+    newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — House on the Hill revealed.`);
+    newState = resolveHouseOnHill(newState, player.id);
+    return clearFlashlightFromState(newState);
+  } else {
+    newState = makeSpent(newState);
+  }
+
+  const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state.currentPlayerIndex, newState.players);
+  return {
+    ...clearFlashlightFromState(newState),
+    players: updatedPlayers,
+    currentPlayerIndex: nextIdx,
+    message: `${updatedPlayers[nextIdx].name}'s turn.`,
+  };
+}
+
+function clearFlashlightFromState(s: GameState): GameState {
+  const { flashlightReveal, ...rest } = s;
+  return rest as GameState;
+}
+
+function clearFlashlightAndAdvance(state: GameState): GameState {
+  const cleared = clearFlashlightFromState(state);
+  const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state.currentPlayerIndex, cleared.players);
+  return {
+    ...cleared,
+    players: updatedPlayers,
+    currentPlayerIndex: nextIdx,
+    message: `${updatedPlayers[nextIdx].name}'s turn.`,
+  };
 }
 
 export function endTurn(state: GameState): GameState {
@@ -684,9 +946,10 @@ export function startNextNeighborhood(state: GameState): GameState {
   if (state.gamePhase !== 'roundEnd') return state;
   const roundNumber = state.roundNumber + 1;
 
-  if (roundNumber >= GAME_RULES.totalNeighborhoods) {
+  if (roundNumber >= state.totalRounds) {
+    const { lastEnderReveal, ...rest } = state;
     return {
-      ...state,
+      ...rest,
       roundNumber,
       gamePhase: 'gameOver',
       message: 'Game Over! Final scores above.',
@@ -698,9 +961,11 @@ export function startNextNeighborhood(state: GameState): GameState {
     pawnPosition: null,
     isHome: false,
     skipNextTurn: false,
+    handRevealed: false,
   }));
 
-  const baseState = { ...state, players: resetPlayers, roundNumber };
+  const { lastEnderReveal, ...stateWithoutEnder } = state;
+  const baseState = { ...stateWithoutEnder, players: resetPlayers, roundNumber };
   return setupNewNeighborhood(baseState);
 }
 
@@ -722,7 +987,7 @@ export function devHideAllTiles(state: GameState): GameState {
 
 export function devAddCandy(state: GameState, playerId: string, amount: number): GameState {
   const players = state.players.map((p) =>
-    p.id === playerId ? { ...p, candyTokens: p.candyTokens + amount } : p
+    p.id === playerId ? { ...p, roundCandy: p.roundCandy + amount } : p
   );
   return { ...state, players };
 }
@@ -742,15 +1007,24 @@ export function devRestartNeighborhood(state: GameState): GameState {
 // --- Scoring ---
 
 export function calculateScore(player: Player): number {
-  const candy = player.candyTokens;
-  const itemPoints = player.itemCards.reduce((sum, c) => sum + c.points, 0);
-  return candy + itemPoints;
+  const banked = Number(player.bankedCandy) || 0;
+  const round = Number(player.roundCandy) || 0;
+  const candy = banked + round;
+  const itemPoints = (player.itemCards ?? []).reduce(
+    (sum, c) => sum + (Number(c.points) || 0),
+    0
+  );
+  const total = candy + itemPoints;
+  return Number.isFinite(total) ? total : 0;
 }
 
 export function getFinalScores(state: GameState): { playerId: string; name: string; score: number }[] {
-  return state.players.map((p) => ({
-    playerId: p.id,
-    name: p.name,
-    score: calculateScore(p),
-  })).sort((a, b) => b.score - a.score);
+  return state.players.map((p) => {
+    const score = calculateScore(p);
+    return {
+      playerId: p.id,
+      name: p.name,
+      score: Number.isFinite(score) ? score : 0,
+    };
+  }).sort((a, b) => b.score - a.score);
 }

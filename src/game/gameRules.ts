@@ -13,6 +13,9 @@ export const GAME_RULES = {
   mansionCardsCount: 4,
   enderCardsCount: 1,
 
+  // House on the Hill (Neighborhood 3 only)
+  houseOnHillPoints: 10,
+
   // Candy bucket
   candyBucketTokens: (numPlayers: number) => numPlayers - 1,
   candyBucketFlipperGets: 1,

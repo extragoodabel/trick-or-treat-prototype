@@ -9,6 +9,7 @@ export const COSTUME_ICONS: Record<string, string> = {
   Skeleton: '💀',
   Werewolf: '🐺',
   Goblin: '👺',
+  Vampire: '🧛',
 };
 
 export const ITEM_ICONS: Record<string, string> = {
