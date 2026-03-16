@@ -6,10 +6,15 @@ import {
   goHome,
   move,
   playItem,
+  discardItem,
   resolveFlashlightReveal,
+  resolveMonsterEncounter,
+  addBinocularsSelection,
+  completeBinocularsReveal,
   endTurn,
   startNextNeighborhood,
   selectStartingPosition,
+  advancePastSkippedPlayer,
   appendToTurnLog,
   devRevealAll,
   devHideAllTiles,
@@ -18,7 +23,7 @@ import {
   devRestartNeighborhood,
   getFinalScores,
 } from './game/gameEngine';
-import { getBotAction, getBotStartingPosition, type BotMoveHistory } from './bots/botLogic';
+import { getBotAction, getBotStartingPosition, BOT_PATH_HISTORY_MAX, type BotMoveHistory, type BotPathHistory } from './bots/botLogic';
 import { Board } from './components/Board';
 import { PlayerPanel } from './components/PlayerPanel';
 import { RoundEndSummary } from './components/RoundEndSummary';
@@ -30,16 +35,31 @@ import { CandyDeltaIndicator } from './components/CandyDeltaIndicator';
 import { EnderRevealOverlay } from './components/EnderRevealOverlay';
 import type { ItemCard } from './game/types';
 import { formatTurnLogWithIcons } from './utils/formatTurnLog';
-import { getCostumeIcon } from './game/icons';
 import {
   type BotSpeed,
+  type BotProfile,
   BOT_TIMING_PRESETS,
   loadBotSpeed,
   saveBotSpeed,
+  loadBotIntelligence,
+  saveBotIntelligence,
+  loadBotProfile,
+  saveBotProfile,
 } from './config/botTiming';
 import { SetupScreen } from './components/SetupScreen';
+import { InfoPanel } from './components/InfoPanel';
+import { useIsMobile } from './hooks/useIsMobile';
 import { DEFAULT_GAME_CONFIG, type GameConfig } from './game/gameConfig';
 import './App.css';
+
+const BUTTON_INFO: Record<string, string> = {
+  Move: 'Move to an adjacent house (including diagonals). If the tile is face-down, you flip it and resolve what you find.',
+  GoHome: 'Go Home: bank your round candy permanently. You take no further turns this round. Your candy is safe.',
+  PlayItem: 'Play Item: select an item from your hand to use. Some items need a target tile (Flashlight, Shortcut, etc.).',
+  DiscardItem: 'Discard Item: select an item from your hand to discard. This counts as your action for the turn.',
+  EndTurn: 'End Turn: pass your turn to the next player without moving or playing an item.',
+  Rules: 'Opens the full game rules in a modal. Turn Info Mode OFF and tap Rules again to open them.',
+};
 
 export default function App() {
   const [state, setState] = useState<GameState | null>(null);
@@ -49,15 +69,21 @@ export default function App() {
   const [showDevTools, setShowDevTools] = useState(false);
   const [showMoveLog, setShowMoveLog] = useState(false);
   const [botSpeed, setBotSpeed] = useState<BotSpeed>(loadBotSpeed);
+  const [useBotIntelligence, setUseBotIntelligence] = useState(loadBotIntelligence);
+  const [botProfile, setBotProfile] = useState<BotProfile>(loadBotProfile);
   const [pendingItem, setPendingItem] = useState<ItemCard | null>(null);
   const [showRules, setShowRules] = useState(false);
   const botTurnTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const botLastMoveFromRef = useRef<Record<string, BotMoveHistory>>({});
+  const botPathHistoryRef = useRef<Record<string, BotPathHistory>>({});
   const animationClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [turnJustChanged, setTurnJustChanged] = useState(false);
   const prevPlayerIndexRef = useRef<number>(0);
   const [enderMomentComplete, setEnderMomentComplete] = useState(false);
   const prevEnderRevealRef = useRef(false);
+  const isMobile = useIsMobile();
+  const [infoMode, setInfoMode] = useState(false);
+  const [infoPanelContent, setInfoPanelContent] = useState<string | null>(null);
 
   // Ender reveal: reset moment flag only when first entering roundEnd with lastEnderReveal
   useEffect(() => {
@@ -130,7 +156,7 @@ export default function App() {
     if (!state || state.gamePhase !== 'playing') return;
     const currentPlayer = state.players[state.currentPlayerIndex];
     const canAct = currentPlayer.controllerType === 'human' && !currentPlayer.isHome && !currentPlayer.skipNextTurn;
-    if (canAct && state.selectedAction === null) {
+    if (canAct && state.selectedAction === null && !state.monsterEncountered) {
       setState({ ...state, selectedAction: 'move', message: `${currentPlayer.name}'s turn. Choose an adjacent house to move.` });
     }
   }, [state]);
@@ -140,11 +166,22 @@ export default function App() {
     setState(gameState);
     setPendingItem(null);
     botLastMoveFromRef.current = {};
+    botPathHistoryRef.current = {};
   }, [gameConfig]);
 
   const handleBotSpeedChange = useCallback((speed: BotSpeed) => {
     setBotSpeed(speed);
     saveBotSpeed(speed);
+  }, []);
+
+  const handleBotIntelligenceChange = useCallback((enabled: boolean) => {
+    setUseBotIntelligence(enabled);
+    saveBotIntelligence(enabled);
+  }, []);
+
+  const handleBotProfileChange = useCallback((profile: BotProfile) => {
+    setBotProfile(profile);
+    saveBotProfile(profile);
   }, []);
 
   // Bot starting position selection
@@ -212,16 +249,43 @@ export default function App() {
     }
   }, [state?.flashlightReveal]);
 
+  // Binoculars reveal: show tiles for ~3 seconds, then consume item and advance turn
+  const BINOCULARS_REVEAL_MS = 3000;
+  useEffect(() => {
+    const item = pendingItem?.type === 'Binoculars' ? pendingItem : state?.binocularsItemToConsume;
+    if (!state?.binocularsReveal?.length || !item) return;
+    const id = setTimeout(() => {
+      setState((s) => (s ? completeBinocularsReveal(s, item) : s));
+      setPendingItem(null);
+    }, BINOCULARS_REVEAL_MS);
+    return () => clearTimeout(id);
+  }, [state?.binocularsReveal, state?.binocularsItemToConsume, pendingItem?.id]);
+
+  // Advance past skipped players (e.g. Zombie on starting tile) to prevent freeze
+  useEffect(() => {
+    setState((s) => {
+      if (!s || s.gamePhase !== 'playing' || s.flashlightReveal) return s;
+      const cp = s.players[s.currentPlayerIndex];
+      if (cp?.skipNextTurn) return advancePastSkippedPlayer(s);
+      return s;
+    });
+  }, [state?.gamePhase, state?.currentPlayerIndex, state?.players, state?.flashlightReveal]);
+
   // Bot turn automation
   useEffect(() => {
     if (!state || state.gamePhase !== 'playing') return;
-    if (state.flashlightReveal) return;
+    if (state.flashlightReveal || state.binocularsReveal?.length) return;
     const currentPlayer = state.players[state.currentPlayerIndex];
     if (currentPlayer.controllerType !== 'bot' || currentPlayer.isHome || currentPlayer.skipNextTurn) {
       return;
     }
     const lastMoveFrom = botLastMoveFromRef.current[currentPlayer.id] ?? null;
-    const action = getBotAction(state, currentPlayer.id, lastMoveFrom);
+    const pathHistory = botPathHistoryRef.current[currentPlayer.id] ?? null;
+    const action = getBotAction(state, currentPlayer.id, lastMoveFrom, {
+      useSmartBots: useBotIntelligence,
+      profile: botProfile,
+      pathHistory,
+    });
     if (!action) return;
 
     const executeBotAction = () => {
@@ -237,11 +301,28 @@ export default function App() {
             from: { row: fromPos.row, col: fromPos.column },
             roundNumber: state.roundNumber,
           };
+          const prev = botPathHistoryRef.current[currentPlayer.id];
+          const moves = prev?.roundNumber === state.roundNumber ? prev.moves : [];
+          const newMove = {
+            from: { row: fromPos.row, col: fromPos.column },
+            to: { row: action.targetTile!.row, col: action.targetTile!.col },
+          };
+          const updated = moves.slice(-(BOT_PATH_HISTORY_MAX - 1));
+          updated.push(newMove);
+          botPathHistoryRef.current[currentPlayer.id] = {
+            roundNumber: state.roundNumber,
+            moves: updated,
+          };
         }
         nextState = selectAction(nextState, 'move');
         nextState = move(nextState, action.targetTile.row, action.targetTile.col);
       } else if (action.type === 'playItem' && action.item) {
-        if (action.targetTile) {
+        if (action.targetTiles && action.item.type === 'Binoculars') {
+          for (const t of action.targetTiles) {
+            nextState = addBinocularsSelection(nextState, t.row, t.col);
+          }
+          nextState = { ...nextState, binocularsItemToConsume: action.item };
+        } else if (action.targetTile) {
           nextState = playItem(nextState, action.item, {
             row: action.targetTile.row,
             col: action.targetTile.col,
@@ -249,6 +330,10 @@ export default function App() {
         } else {
           nextState = playItem(nextState, action.item);
         }
+      } else if (action.type === 'discardItem' && action.item) {
+        nextState = discardItem(nextState, action.item);
+      } else if (action.type === 'resolveMonsterEncounter') {
+        nextState = resolveMonsterEncounter(nextState);
       }
       setState(nextState);
     };
@@ -260,12 +345,17 @@ export default function App() {
     return () => {
       if (botTurnTimeoutRef.current) clearTimeout(botTurnTimeoutRef.current);
     };
-  }, [state?.currentPlayerIndex, state?.gamePhase, state?.players, state?.board, botSpeed]);
+  }, [state?.currentPlayerIndex, state?.gamePhase, state?.players, state?.board, botSpeed, useBotIntelligence, botProfile]);
+
+  const handleShowInfo = useCallback((content: string) => {
+    setInfoPanelContent(content);
+  }, []);
 
   const handleTileClick = useCallback(
     (row: number, col: number) => {
       if (!state) return;
       if (state.flashlightReveal) return;
+      if (isMobile && infoMode) return; // Tile handles via onInfoClick
       if (state.gamePhase === 'chooseStartingPosition') {
         const currentPlayer = state.players[state.currentPlayerIndex];
         if (currentPlayer.controllerType === 'human') {
@@ -274,6 +364,7 @@ export default function App() {
         return;
       }
       if (state.gamePhase !== 'playing') return;
+      if (state.binocularsReveal?.length) return; // No interaction during peek reveal
       const action = state.selectedAction;
       if (action === 'move') {
         setState(move(state, row, col));
@@ -281,13 +372,17 @@ export default function App() {
         if (pendingItem.type === 'Shortcut') {
           setState(playItem(state, pendingItem, { row, col }));
           setPendingItem(null);
-        } else if (pendingItem.type === 'IntrusiveThoughts' || pendingItem.type === 'Flashlight' || pendingItem.type === 'Binoculars') {
+        } else if (pendingItem.type === 'Binoculars') {
+          if (!state.binocularsReveal) {
+            setState(addBinocularsSelection(state, row, col));
+          }
+        } else if (pendingItem.type === 'IntrusiveThoughts' || pendingItem.type === 'Flashlight') {
           setState(playItem(state, pendingItem, { row, col }));
           setPendingItem(null);
         }
       }
     },
-    [state, pendingItem]
+    [state, pendingItem, isMobile, infoMode]
   );
 
   const handlePlayItem = useCallback(
@@ -302,12 +397,27 @@ export default function App() {
           return;
         }
         setPendingItem(item);
-        setState({ ...selectAction(state, 'playItem'), message: `Choose target for ${item.type}` });
-      } else {
-        setState(playItem(state, item));
+        setState({
+          ...selectAction(state, 'playItem'),
+          message:
+            item.type === 'Binoculars'
+              ? 'Select two face-down houses to peek at.'
+              : item.type === 'Flashlight'
+                ? 'Select an adjacent house, or the monster you landed on to negate.'
+                : `Choose target for ${item.type}`,
+        });
       }
+      // Non-targeted items (points-only, etc.) are not playable; use Discard Item to remove them
     },
     [state, pendingItem]
+  );
+
+  const handleDiscardItem = useCallback(
+    (item: ItemCard) => {
+      if (!state || state.selectedAction !== 'discardItem') return;
+      setState(discardItem(state, item));
+    },
+    [state]
   );
 
   if (!state) {
@@ -358,10 +468,23 @@ export default function App() {
     return (
       <div className="app app--game-view">
         <header className="app-header">
-          <h1 className="app-title">Trick or Treat v0.5</h1>
+          <h1 className="app-title">Trick or Treat v0.9</h1>
           <p className="round-info">
             Neighborhood {state.roundNumber + 1}/{state.totalRounds} • Choose starting houses
           </p>
+          {isMobile && (
+            <button
+              type="button"
+              className={`info-mode-btn ${infoMode ? 'active' : ''}`}
+              onClick={() => {
+                setInfoMode((v) => !v);
+                setInfoPanelContent(null);
+              }}
+              aria-pressed={infoMode}
+            >
+              {infoMode ? 'Info ✓' : 'Info'}
+            </button>
+          )}
           <button type="button" className="rules-btn" onClick={() => setShowRules(true)}>
             Rules
           </button>
@@ -381,6 +504,9 @@ export default function App() {
                   playerIndex={i}
                   isCurrent={player.id === choosingPlayer.id}
                   color={state.playerColors[i]}
+                  infoMode={isMobile && infoMode}
+                  onShowInfo={isMobile ? handleShowInfo : undefined}
+                  disableTooltipHover={isMobile}
                   showHand={showAllHands || player.controllerType === 'human' || player.handRevealed}
                   isAffected={false}
                 />
@@ -432,6 +558,29 @@ export default function App() {
                     />
                     Show All Hands
                   </label>
+                  <label className="dev-toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={useBotIntelligence}
+                      onChange={(e) => handleBotIntelligenceChange(e.target.checked)}
+                    />
+                    Smart Bots
+                  </label>
+                  {useBotIntelligence && (
+                    <label className="dev-toggle-label">
+                      <span>Profile:</span>
+                      <select
+                        value={botProfile}
+                        onChange={(e) => handleBotProfileChange(e.target.value as BotProfile)}
+                        style={{ marginLeft: '0.25rem' }}
+                      >
+                        <option value="greedy">Greedy</option>
+                        <option value="cautious">Cautious</option>
+                        <option value="aggressive">Aggressive</option>
+                        <option value="comeback">Comeback</option>
+                      </select>
+                    </label>
+                  )}
                 </div>
               )}
             </div>
@@ -447,12 +596,24 @@ export default function App() {
                     onTileClick={handleTileClick}
                     devRevealAll={devRevealAllTiles}
                     playerColors={state.playerColors}
+                    infoMode={isMobile && infoMode}
+                    onShowInfo={isMobile ? handleShowInfo : undefined}
+                    disableTooltipHover={isMobile}
                   />
                 </div>
               </div>
             </div>
           </main>
         </div>
+        {isMobile && infoPanelContent && (
+          <InfoPanel content={infoPanelContent} onClose={() => setInfoPanelContent(null)} />
+        )}
+        {(state.lastRevealedItem || state.lastRevealedCandy) && (
+          <CollectibleFlyAnimation
+            lastRevealedItem={state.lastRevealedItem ?? null}
+            lastRevealedCandy={state.lastRevealedCandy ?? null}
+          />
+        )}
         {showRules && <RulesModal onClose={() => setShowRules(false)} />}
       </div>
     );
@@ -464,7 +625,7 @@ export default function App() {
       return (
         <div className="app">
           <header className="header header--with-rules">
-            <h1>Trick or Treat v0.5</h1>
+            <h1>Trick or Treat v0.9</h1>
             <button type="button" className="rules-btn" onClick={() => setShowRules(true)}>
               Rules
             </button>
@@ -473,6 +634,7 @@ export default function App() {
             state={state}
             onContinue={() => {
               botLastMoveFromRef.current = {};
+    botPathHistoryRef.current = {};
               setState(startNextNeighborhood(state));
             }}
           />
@@ -486,18 +648,23 @@ export default function App() {
   const currentPlayer = state.players[state.currentPlayerIndex];
   const isHumanTurn = currentPlayer.controllerType === 'human';
   const isFlashlightReveal = !!state.flashlightReveal;
-  const canAct = isHumanTurn && !currentPlayer.isHome && !currentPlayer.skipNextTurn && !isFlashlightReveal;
+  const isBinocularsReveal = !!state.binocularsReveal?.length;
+  const canAct = isHumanTurn && !currentPlayer.isHome && !currentPlayer.skipNextTurn && !isFlashlightReveal && !isBinocularsReveal;
   const currentPlayerColor = state.playerColors[state.currentPlayerIndex] ?? '#fff';
   const isEnderRevealMoment =
     state.gamePhase === 'roundEnd' && !!state.lastOldManJohnsonReveal && !enderMomentComplete;
 
-  // Live status: flashlight message during reveal, else consequence, else last turn log
+  // Live status: flashlight message during reveal, else monster encounter, else consequence, else last turn log
   const lastLogEntry = state.turnLog[state.turnLog.length - 1];
   const consequenceMsg = state.lastConsequenceMessage;
   const liveStatusText =
     isFlashlightReveal
       ? formatTurnLogWithIcons(state.message)
-      : canAct && isHumanTurn
+      : state.monsterEncountered && canAct
+        ? 'Monster encountered! Use Flashlight to negate, or Face Monster to resolve.'
+        : isBinocularsReveal
+        ? 'Peeking…'
+        : canAct && isHumanTurn
         ? 'Your Turn — choose an adjacent house to move'
         : !canAct && isHumanTurn
           ? `${currentPlayer.name}'s Turn`
@@ -512,11 +679,35 @@ export default function App() {
   return (
     <div className={`app app--game-view${isEnderRevealMoment ? ' app--ender-reveal' : ''}`}>
       <header className="app-header">
-        <h1 className="app-title">Trick or Treat v0.5</h1>
+        <h1 className="app-title">Trick or Treat v0.9</h1>
         <p className="round-info">
           Neighborhood {state.roundNumber + 1}/{state.totalRounds} • Candy: {state.candySupply}
         </p>
-        <button type="button" className="rules-btn" onClick={() => setShowRules(true)}>
+        {isMobile && (
+          <button
+            type="button"
+            className={`info-mode-btn ${infoMode ? 'active' : ''}`}
+            onClick={() => {
+              setInfoMode((v) => !v);
+              setInfoPanelContent(null);
+            }}
+            aria-pressed={infoMode}
+            title={infoMode ? 'Info Mode ON — taps explain' : 'Info Mode OFF — taps play'}
+          >
+            {infoMode ? 'Info ✓' : 'Info'}
+          </button>
+        )}
+        <button
+          type="button"
+          className="rules-btn"
+          onClick={() => {
+            if (isMobile && infoMode) {
+              setInfoPanelContent(BUTTON_INFO.Rules);
+              return;
+            }
+            setShowRules(true);
+          }}
+        >
           Rules
         </button>
         <p className="message">{state.message}</p>
@@ -534,8 +725,13 @@ export default function App() {
                 color={state.playerColors[i]}
                 turnJustChanged={turnJustChanged && player.id === currentPlayer.id}
                 onPlayItem={handlePlayItem}
-                canPlayItem={canAct && player.id === currentPlayer.id}
+                canPlayItem={canAct && player.id === currentPlayer.id && state.selectedAction === 'playItem'}
+                onDiscardItem={handleDiscardItem}
+                canDiscardItem={canAct && player.id === currentPlayer.id && state.selectedAction === 'discardItem'}
                 selectedItem={player.id === currentPlayer.id ? pendingItem : null}
+                infoMode={isMobile && infoMode}
+                onShowInfo={isMobile ? handleShowInfo : undefined}
+                disableTooltipHover={isMobile}
                 showHand={showAllHands || player.controllerType === 'human' || player.handRevealed}
                 isAffected={state.lastAffectedPlayerIds?.includes(player.id) ?? false}
                 isGoblinVictim={!!(state.lastGoblinTheft && state.lastGoblinTheft.fromPlayerIndex === i)}
@@ -605,6 +801,29 @@ export default function App() {
                   />
                   Show All Hands
                 </label>
+                <label className="dev-toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={useBotIntelligence}
+                    onChange={(e) => handleBotIntelligenceChange(e.target.checked)}
+                  />
+                  Smart Bots
+                </label>
+                {useBotIntelligence && (
+                  <label className="dev-toggle-label">
+                    <span>Profile:</span>
+                    <select
+                      value={botProfile}
+                      onChange={(e) => handleBotProfileChange(e.target.value as BotProfile)}
+                      style={{ marginLeft: '0.25rem' }}
+                    >
+                      <option value="greedy">Greedy</option>
+                      <option value="cautious">Cautious</option>
+                      <option value="aggressive">Aggressive</option>
+                      <option value="comeback">Comeback</option>
+                    </select>
+                  </label>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -657,7 +876,11 @@ export default function App() {
               aria-live="polite"
               key={`${state.currentPlayerIndex}-${state.turnLog.length}`}
             >
-              <span className="live-status-costume">{getCostumeIcon(currentPlayer.costume)}</span>
+              <span
+                className="live-status-color"
+                style={{ backgroundColor: currentPlayerColor }}
+                aria-hidden="true"
+              />
               <span className="live-status-text">{liveStatusText}</span>
             </div>
             <div className={`board-area${isEnderRevealMoment ? ' board-area--ender-shake' : ''}`}>
@@ -670,15 +893,50 @@ export default function App() {
                   devRevealAll={devRevealAllTiles}
                   playerColors={state.playerColors}
                   pendingItem={pendingItem}
+                  infoMode={isMobile && infoMode}
+                  onShowInfo={isMobile ? handleShowInfo : undefined}
+                  disableTooltipHover={isMobile}
                 />
               </div>
             </div>
             <div className={`controls ${canAct ? 'controls--human-turn' : ''}`}>
-              {canAct && (
+              {canAct && state.monsterEncountered && (
+                <>
+                  <button
+                    type="button"
+                    className="controls-monster-continue"
+                    onClick={() => {
+                      setPendingItem(null);
+                      setState(resolveMonsterEncounter(state));
+                    }}
+                  >
+                    Face Monster
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isMobile && infoMode) {
+                        setInfoPanelContent(BUTTON_INFO.PlayItem);
+                        return;
+                      }
+                      setPendingItem(null);
+                      setState(selectAction(state, 'playItem'));
+                    }}
+                    className={state.selectedAction === 'playItem' ? 'active' : ''}
+                  >
+                    Play Item (Flashlight)
+                  </button>
+                </>
+              )}
+              {canAct && !state.monsterEncountered && (
                 <>
                   <button
                     type="button"
                     onClick={() => {
+                      if (isMobile && infoMode) {
+                        setInfoPanelContent(BUTTON_INFO.Move);
+                        return;
+                      }
                       setPendingItem(null);
                       setState(selectAction(state, 'move'));
                     }}
@@ -689,6 +947,10 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
+                      if (isMobile && infoMode) {
+                        setInfoPanelContent(BUTTON_INFO.GoHome);
+                        return;
+                      }
                       setPendingItem(null);
                       setState(goHome(state));
                     }}
@@ -698,6 +960,10 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
+                      if (isMobile && infoMode) {
+                        setInfoPanelContent(BUTTON_INFO.PlayItem);
+                        return;
+                      }
                       setPendingItem(null);
                       setState(selectAction(state, 'playItem'));
                     }}
@@ -708,6 +974,30 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
+                      if (isMobile && infoMode) {
+                        setInfoPanelContent(BUTTON_INFO.DiscardItem);
+                        return;
+                      }
+                      setPendingItem(null);
+                      setState(
+                        state.selectedAction === 'discardItem'
+                          ? selectAction(state, 'move')
+                          : selectAction(state, 'discardItem')
+                      );
+                    }}
+                    className={state.selectedAction === 'discardItem' ? 'active' : ''}
+                    disabled={!currentPlayer.itemCards.length}
+                    title={!currentPlayer.itemCards.length ? 'No items to discard' : undefined}
+                  >
+                    Discard Item
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isMobile && infoMode) {
+                        setInfoPanelContent(BUTTON_INFO.EndTurn);
+                        return;
+                      }
                       setPendingItem(null);
                       setState(endTurn(state));
                     }}
@@ -718,17 +1008,36 @@ export default function App() {
                     <span className="controls-hint">
                       {state.selectedAction === 'move' && 'Choose an adjacent house to move'}
                       {state.selectedAction === 'playItem' && 'Select an item to play'}
+                      {state.selectedAction === 'discardItem' && 'Select an item to discard'}
                     </span>
                   )}
                 </>
               )}
+              {canAct && state.monsterEncountered && (
+                <span className="controls-hint">
+                  Use Flashlight to negate, or Face Monster to resolve.
+                </span>
+              )}
               {pendingItem && (
-                <span className="pending-hint">Choose tile for {pendingItem.type}</span>
+                <span className="pending-hint">
+                  {pendingItem.type === 'Binoculars'
+                    ? (state.binocularsSelection?.length === 1
+                        ? 'Select one more face-down house'
+                        : 'Select two face-down houses to peek at')
+                    : pendingItem.type === 'Flashlight'
+                      ? (state.monsterEncountered
+                          ? 'Select the monster you landed on to negate, or an adjacent house'
+                          : 'Select an adjacent house to reveal/clear')
+                      : `Choose tile for ${pendingItem.type}`}
+                </span>
               )}
             </div>
           </div>
         </main>
         {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+        {isMobile && infoPanelContent && (
+          <InfoPanel content={infoPanelContent} onClose={() => setInfoPanelContent(null)} />
+        )}
         {(state.lastRevealedItem || state.lastRevealedCandy) && (
           <CollectibleFlyAnimation
             lastRevealedItem={state.lastRevealedItem ?? null}

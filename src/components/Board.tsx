@@ -4,7 +4,6 @@ import { TileComponent } from './Tile';
 import { FlashlightBeamOverlay } from './FlashlightBeamOverlay';
 import { STREET_COL_LABELS, STREET_ROW_LABELS } from '../game/boardLabels';
 import { isAdjacent } from '../game/movement';
-import { getCostumeIcon } from '../game/icons';
 
 const PLAYER_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12'];
 
@@ -15,9 +14,13 @@ interface BoardProps {
   playerColors?: string[];
   /** When set, tiles are selectable for item targeting (Flashlight, Shortcut, Intrusive Thoughts, Binoculars) */
   pendingItem?: ItemCard | null;
+  /** Mobile Info Mode: taps show info instead of gameplay */
+  infoMode?: boolean;
+  onShowInfo?: (content: string) => void;
+  disableTooltipHover?: boolean;
 }
 
-export function Board({ state, onTileClick, devRevealAll, playerColors = PLAYER_COLORS, pendingItem }: BoardProps) {
+export function Board({ state, onTileClick, devRevealAll, playerColors = PLAYER_COLORS, pendingItem, infoMode, onShowInfo, disableTooltipHover }: BoardProps) {
   const selectedAction = state.selectedAction;
   const isMove = selectedAction === 'move';
   const isChooseStart = state.gamePhase === 'chooseStartingPosition';
@@ -43,12 +46,20 @@ export function Board({ state, onTileClick, devRevealAll, playerColors = PLAYER_
       pendingItem?.type === 'IntrusiveThoughts'
         ? isCurrentPlayerTile && tile.card?.type === 'CandyBucket' && tile.isFlipped && !tile.isClosed && tile.candyTokensOnTile > 0
         : true;
-    const selectableForBinoculars = pendingItem?.type === 'Binoculars' ? !tile.isFlipped : true;
-    const selectableForItem = isItemTargeting && !tile.isClosed && selectableForShortcut && selectableForIntrusiveThoughts && selectableForBinoculars;
+    const selectableForBinoculars = pendingItem?.type === 'Binoculars' ? !tile.isFlipped && !tile.isClosed : true;
+    const monsterEnc = state.monsterEncountered;
+    const isDefensiveFlashlightTarget = pendingItem?.type === 'Flashlight' && monsterEnc && monsterEnc.row === row && monsterEnc.col === col;
+    const selectableForFlashlight =
+      pendingItem?.type === 'Flashlight'
+        ? (isDefensiveFlashlightTarget || (isAdjacentTile && !tile.isClosed))
+        : true;
+    const selectableForItem = isItemTargeting && !tile.isClosed && selectableForShortcut && selectableForIntrusiveThoughts && selectableForBinoculars && selectableForFlashlight;
+    const isBinocularsSelected = pendingItem?.type === 'Binoculars' && state.binocularsSelection?.some((s) => s.row === row && s.col === col);
     const selectable =
-      selectableForMove || selectableForStart || (selectableForItem && selectableForShortcut);
+      selectableForMove || selectableForStart || (selectableForItem && (selectableForShortcut || pendingItem?.type === 'Binoculars'));
     const isItemTarget = isItemTargeting && selectableForItem;
-    return { selectable, isCurrentPlayerTile, isItemTarget };
+    const isBinocularsRevealed = state.binocularsReveal?.some((s) => s.row === row && s.col === col);
+    return { selectable, isCurrentPlayerTile, isItemTarget, isBinocularsSelected, isBinocularsRevealed };
   };
 
   const rowLabels = [...STREET_ROW_LABELS];
@@ -82,7 +93,7 @@ export function Board({ state, onTileClick, devRevealAll, playerColors = PLAYER_
       {/* Tiles: rows 2–(rowCount+1), cols 2–6 */}
       {state.board.map((row, r) =>
         row.map((tile, c) => {
-          const { selectable, isCurrentPlayerTile, isItemTarget } = getTileState(r, c);
+          const { selectable, isCurrentPlayerTile, isItemTarget, isBinocularsSelected, isBinocularsRevealed } = getTileState(r, c);
           const tileKey = `${r},${c}`;
           const occupancyOrder = state.tileOccupancyOrder?.[tileKey];
           const playersOnTileRaw: { player: Player; colorIndex: number }[] = state.players
@@ -128,18 +139,21 @@ export function Board({ state, onTileClick, devRevealAll, playerColors = PLAYER_
                 isValidMove={isValidMove}
                 isCurrentPlayerTile={isCurrentPlayerTile}
                 isSelectableForStart={isSelectableForStart}
-                playersOnTile={playersOnTile.map(({ player, colorIndex }) => ({
-                  costume: player.costume,
+                playersOnTile={playersOnTile.map(({ colorIndex }) => ({
                   color: playerColors[colorIndex] || '#fff',
                 }))}
                 movingPawn={isAnimatingMove ? { from: lastMove!.from, playerIndex: lastMove!.playerIndex } : undefined}
                 currentPlayerColor={currentPlayerColor}
                 onClick={() => onTileClick(r, c)}
+                onInfoClick={infoMode ? onShowInfo : undefined}
+                infoMode={!!infoMode}
+                disableTooltipHover={!!disableTooltipHover}
                 devRevealAll={devRevealAll}
                 isMansionRow={isMansionRow}
                 isFirstMansionTile={isFirstMansionTile}
                 isAnimatingItemReveal={isAnimatingItemReveal}
-                forceRevealed={forceRevealed}
+                forceRevealed={forceRevealed || isBinocularsRevealed}
+                isBinocularsSelected={isBinocularsSelected}
                 isFlashlightBeamTarget={isBeamPhaseTarget}
                 isFlashlightBeamPhase={isBeamPhase}
                 isMoveDestination={isMoveDestination}
@@ -185,9 +199,8 @@ export function Board({ state, onTileClick, devRevealAll, playerColors = PLAYER_
             <span
               className="moving-pawn"
               style={{ backgroundColor: playerColors[lastMove.playerIndex] || '#fff' }}
-            >
-              {state.players[lastMove.playerIndex] && getCostumeIcon(state.players[lastMove.playerIndex].costume)}
-            </span>
+              aria-label={`Player ${lastMove.playerIndex + 1} moving`}
+            />
           </div>
         </div>
       )}

@@ -1,10 +1,8 @@
 import type { Tile as TileType } from '../game/types';
-import { getCostumeIcon } from '../game/icons';
 import { Tooltip } from './Tooltip';
 import { getTileTooltip } from '../utils/tooltipContent';
 
 interface PawnOnTile {
-  costume: string;
   color: string;
 }
 
@@ -24,23 +22,21 @@ interface TileProps {
   movingPawn?: { from: { row: number; col: number }; playerIndex: number };
   currentPlayerColor?: string;
   onClick: () => void;
+  onInfoClick?: (content: string) => void;
+  infoMode?: boolean;
+  disableTooltipHover?: boolean;
   devRevealAll?: boolean;
   isMansionRow?: boolean;
   isFirstMansionTile?: boolean;
   isHouseOnHill?: boolean;
-  /** True while item fly animation is playing from this tile - keep showing gift icon */
   isAnimatingItemReveal?: boolean;
-  /** Players who have collected from this Candy Bucket (for visit markers) */
   collectedBy?: CollectedBy[];
-  /** Force tile to show as revealed (e.g. during flashlight reveal phase) */
   forceRevealed?: boolean;
-  /** Target tile during beam phase - show glow, dim others */
   isFlashlightBeamTarget?: boolean;
-  /** True when beam phase is active - dim non-target tiles */
   isFlashlightBeamPhase?: boolean;
-  /** Destination tile during pawn movement - highlight in player color */
   isMoveDestination?: boolean;
   moveDestinationColor?: string;
+  isBinocularsSelected?: boolean;
 }
 
 const MONSTER_ICONS: Record<string, string> = {
@@ -63,6 +59,9 @@ export function TileComponent({
   movingPawn,
   currentPlayerColor,
   onClick,
+  onInfoClick,
+  infoMode = false,
+  disableTooltipHover = false,
   devRevealAll,
   isMansionRow,
   isFirstMansionTile = false,
@@ -74,24 +73,23 @@ export function TileComponent({
   isFlashlightBeamPhase = false,
   isMoveDestination = false,
   moveDestinationColor,
+  isBinocularsSelected = false,
 }: TileProps) {
   const showCard = tile.isFlipped || devRevealAll || forceRevealed;
   const card = tile.card;
   const isCandyBucket = showCard && card?.type === 'CandyBucket';
   const isMonster = showCard && card?.type === 'Monster';
-  const hasPawn = playersOnTile.length > 0;
-  const playerColor = playersOnTile[playersOnTile.length - 1]?.color ?? playersOnTile[0]?.color ?? '#fff';
+  const hasOccupancy = playersOnTile.length > 0;
   const hidePawnForMove = !!movingPawn;
-  // Multi-ring: first arrival = innermost (largest inset), last = outermost (smallest inset)
-  const pawnInsetRings =
-    playersOnTile.length > 1
-      ? playersOnTile
-          .map((p, i) => `inset 0 0 0 ${2 + (playersOnTile.length - 1 - i) * 2}px ${p.color}`)
-          .join(', ')
-      : undefined;
 
   let content = '';
-  const showSpiderWeb = tile.isSpent || ((card?.type === 'Item' || card?.type === 'CandyItem' || card?.type === 'KingSizeBar') && tile.itemCollected && !isAnimatingItemReveal);
+  const candyBucketEmpty = showCard && card?.type === 'CandyBucket' && tile.candyTokensOnTile === 0;
+  const giftOrBarCollected =
+    showCard &&
+    (card?.type === 'Item' || card?.type === 'CandyItem' || card?.type === 'KingSizeBar') &&
+    tile.itemCollected &&
+    !isAnimatingItemReveal;
+  const showSpiderWeb = (showCard && tile.isSpent) || candyBucketEmpty || giftOrBarCollected;
   if (showSpiderWeb) {
     content = '🕸️';
   } else if (showCard && card) {
@@ -119,60 +117,61 @@ export function TileComponent({
     content = '🏠';
   }
 
-  // Legal move / current tile uses active player color; move destination uses mover's color
-  const tileColor =
-    isMoveDestination && moveDestinationColor
-      ? moveDestinationColor
-      : isCurrentPlayerTile || isValidMove || isSelectableForStart
-        ? (currentPlayerColor ?? playerColor)
-        : playerColor;
   const isInteractive = isSelected;
 
   let tooltipContent: string | null = null;
   if (!tile.isClosed) {
     tooltipContent =
       showCard && card
-        ? getTileTooltip(card.type, card.monsterType, true, tile.itemCollected)
+        ? getTileTooltip(card.type, card.monsterType, true, tile.itemCollected, candyBucketEmpty)
         : getTileTooltip(null, undefined, false);
-    // Enhance Candy Bucket tooltip with collected-by info
-    if (tooltipContent && isCandyBucket && collectedBy.length > 0) {
+    if (tooltipContent && isCandyBucket && !candyBucketEmpty && collectedBy.length > 0) {
       tooltipContent += ` Collected here: ${collectedBy.map((c) => c.name).join(', ')}`;
     }
   }
+
+  const handleClick = () => {
+    if (infoMode && onInfoClick && tooltipContent) {
+      onInfoClick(tooltipContent);
+    } else {
+      onClick();
+    }
+  };
+
+  // Occupancy fill: single = solid color, multi = striped
+  const occupancyColors = playersOnTile.map((p) => p.color);
+  const n = occupancyColors.length;
+  const occupancyFill =
+    n === 1
+      ? occupancyColors[0]
+      : n > 1
+        ? `repeating-linear-gradient(135deg, ${occupancyColors
+            .map((c, i) => `${c} ${(i / n) * 100}% ${((i + 1) / n) * 100}%`)
+            .join(', ')})`
+        : null;
+
+  // Legal move / current tile = outline (active player color)
+  const showLegalOutline = isValidMove || isSelectableForStart || isCurrentPlayerTile || (isSelected && !isCurrentPlayerTile);
+  const outlineColor = isMoveDestination && moveDestinationColor
+    ? moveDestinationColor
+    : currentPlayerColor ?? occupancyColors[0] ?? '#fff';
 
   const tileButton = (
     <button
       type="button"
       data-tile-row={tile.row}
       data-tile-col={tile.column}
-      className={`tile ${tile.isClosed ? 'closed' : ''} ${isSelected ? 'selected' : ''} ${isValidMove ? 'valid-move' : ''} ${isCurrentPlayerTile ? 'current-player-tile' : ''} ${isSelectableForStart ? 'selectable-start' : ''} ${hasPawn ? 'has-pawn' : ''} ${hidePawnForMove ? 'pawn-moving' : ''} ${isMansionRow ? 'mansion-row' : ''} ${isFirstMansionTile ? 'mansion-row-first' : ''} ${isHouseOnHill ? 'house-on-hill' : ''} ${tile.itemCollected ? 'used-gift-house' : ''} ${showCard ? 'revealed' : 'face-down'} ${forceRevealed ? 'tile--flashlight-reveal' : ''} ${isFlashlightBeamTarget ? 'tile--flashlight-beam-target' : ''} ${isFlashlightBeamPhase && !isFlashlightBeamTarget ? 'tile--flashlight-dimmed' : ''} ${isMoveDestination ? 'tile--move-destination' : ''} ${isCandyBucket ? 'candy-bucket-tile' : ''} ${isMonster ? 'monster-tile' : ''} ${isInteractive ? 'interactive' : ''}`}
-      onClick={onClick}
+      className={`tile ${tile.isClosed ? 'closed' : ''} ${isSelected ? 'selected' : ''} ${isBinocularsSelected ? 'binoculars-selected' : ''} ${isValidMove ? 'valid-move' : ''} ${isCurrentPlayerTile ? 'current-player-tile' : ''} ${isSelectableForStart ? 'selectable-start' : ''} ${hasOccupancy ? 'has-occupancy' : ''} ${hidePawnForMove ? 'pawn-moving' : ''} ${isMansionRow ? 'mansion-row' : ''} ${isFirstMansionTile ? 'mansion-row-first' : ''} ${isHouseOnHill ? 'house-on-hill' : ''} ${tile.itemCollected ? 'used-gift-house' : ''} ${showCard ? 'revealed' : 'face-down'} ${forceRevealed ? 'tile--flashlight-reveal' : ''} ${isFlashlightBeamTarget ? 'tile--flashlight-beam-target' : ''} ${isFlashlightBeamPhase && !isFlashlightBeamTarget ? 'tile--flashlight-dimmed' : ''} ${isMoveDestination ? 'tile--move-destination' : ''} ${isCandyBucket ? 'candy-bucket-tile' : ''} ${isMonster ? 'monster-tile' : ''} ${isInteractive ? 'interactive' : ''}`}
+      onClick={handleClick}
       disabled={tile.isClosed}
       style={
-        hasPawn || isCurrentPlayerTile || isValidMove || isSelectableForStart || isMoveDestination
-          ? {
-              '--tile-accent-color': tileColor,
-              '--pawn-color': playerColor,
-              ...(pawnInsetRings && { '--pawn-inset-rings': pawnInsetRings }),
-            } as React.CSSProperties
-          : undefined
+        {
+          ...(occupancyFill && { '--tile-occupancy-fill': occupancyFill }),
+          ...(showLegalOutline && { '--tile-legal-outline': outlineColor }),
+        } as React.CSSProperties
       }
     >
       <span className="tile-content">{content}</span>
-      {!hidePawnForMove && playersOnTile.length > 0 && (
-        <div className="tile-pawns">
-          {playersOnTile.map((p, i) => (
-            <span
-              key={i}
-              className="tile-pawn"
-              style={{ backgroundColor: p.color }}
-              title={p.costume}
-            >
-              {getCostumeIcon(p.costume)}
-            </span>
-          ))}
-        </div>
-      )}
       {tile.candyTokensOnTile > 0 && showCard && (
         <span className="candy-badge">{tile.candyTokensOnTile}</span>
       )}
@@ -193,7 +192,7 @@ export function TileComponent({
 
   if (tooltipContent) {
     return (
-      <Tooltip content={tooltipContent} placement="top">
+      <Tooltip content={tooltipContent} placement="top" disableHover={disableTooltipHover}>
         {tileButton}
       </Tooltip>
     );

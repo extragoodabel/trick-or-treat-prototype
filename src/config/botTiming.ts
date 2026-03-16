@@ -63,3 +63,54 @@ export function saveBotSpeed(speed: BotSpeed): void {
     // ignore
   }
 }
+
+// --- Bot Intelligence (smart vs simple) ---
+
+const BOT_INTELLIGENCE_KEY = 'trick-or-treat-bot-intelligence';
+
+export function loadBotIntelligence(): boolean {
+  try {
+    const stored = localStorage.getItem(BOT_INTELLIGENCE_KEY);
+    if (stored === 'true') return true;
+    if (stored === 'false') return false;
+  } catch {
+    // ignore
+  }
+  return false; // Default: simple bots
+}
+
+export function saveBotIntelligence(enabled: boolean): void {
+  try {
+    localStorage.setItem(BOT_INTELLIGENCE_KEY, String(enabled));
+  } catch {
+    // ignore
+  }
+}
+
+// --- Bot Profile (when Smart Bots enabled) ---
+
+import type { BotProfile } from '../bots/botEvaluation';
+
+export type { BotProfile };
+
+const BOT_PROFILE_KEY = 'trick-or-treat-bot-profile';
+
+export function loadBotProfile(): BotProfile {
+  try {
+    const stored = localStorage.getItem(BOT_PROFILE_KEY);
+    if (stored === 'greedy' || stored === 'cautious' || stored === 'aggressive' || stored === 'comeback') {
+      return stored;
+    }
+  } catch {
+    // ignore
+  }
+  return 'greedy';
+}
+
+export function saveBotProfile(profile: BotProfile): void {
+  try {
+    localStorage.setItem(BOT_PROFILE_KEY, profile);
+  } catch {
+    // ignore
+  }
+}

@@ -1,5 +1,5 @@
 import type { Player, ItemCard } from '../game/types';
-import { getItemIcon, getCostumeIcon, ITEM_LABELS } from '../game/icons';
+import { getItemIcon, ITEM_LABELS } from '../game/icons';
 import { Tooltip } from './Tooltip';
 import { getItemTooltip } from '../utils/tooltipContent';
 
@@ -11,8 +11,15 @@ interface PlayerPanelProps {
   turnJustChanged?: boolean;
   onPlayItem?: (item: ItemCard) => void;
   canPlayItem?: boolean;
+  /** Discard mode: clicking an item discards it */
+  onDiscardItem?: (item: ItemCard) => void;
+  canDiscardItem?: boolean;
   /** Item currently selected for use (e.g. Flashlight awaiting target) */
   selectedItem?: ItemCard | null;
+  /** Mobile Info Mode: taps show info instead of playing */
+  infoMode?: boolean;
+  onShowInfo?: (content: string) => void;
+  disableTooltipHover?: boolean;
   showHand?: boolean;
   isAffected?: boolean;
   /** Goblin theft: victim panel flashes red */
@@ -23,6 +30,8 @@ interface PlayerPanelProps {
   isWitchSwapParticipant?: boolean;
 }
 
+const TARGETED_ITEM_TYPES = ['Shortcut', 'IntrusiveThoughts', 'Flashlight', 'Binoculars'];
+
 export function PlayerPanel({
   player,
   playerIndex,
@@ -31,7 +40,12 @@ export function PlayerPanel({
   turnJustChanged = false,
   onPlayItem,
   canPlayItem,
+  onDiscardItem,
+  canDiscardItem,
   selectedItem = null,
+  infoMode = false,
+  onShowInfo,
+  disableTooltipHover = false,
   showHand = true,
   isAffected = false,
   isGoblinVictim = false,
@@ -51,7 +65,7 @@ export function PlayerPanel({
       data-player-index={playerIndex}
     >
       <div className="player-header">
-        <span className="costume">{getCostumeIcon(player.costume)}</span>
+        <span className="player-color-dot" style={{ backgroundColor: color }} aria-hidden="true" />
         <span className="name">{player.name}</span>
         {player.controllerType === 'bot' && <span className="bot-badge">Bot</span>}
         {player.isHome && <span className="home-badge">🏠 Home</span>}
@@ -65,14 +79,24 @@ export function PlayerPanel({
         {player.itemCards.length > 0 ? (
           showHand ? (
             <ul className="player-items-icons">
-              {player.itemCards.map((item) => (
+              {player.itemCards.map((item) => {
+                const itemTooltip = getItemTooltip(item.type, item.points);
+                return (
                 <li key={item.id}>
-                  <Tooltip content={getItemTooltip(item.type, item.points)} placement="top">
+                  <Tooltip content={itemTooltip} placement="top" disableHover={disableTooltipHover}>
                     <button
                       type="button"
-                      className={`item-btn item-btn-icon${selectedItem?.id === item.id ? ' item-btn-selected' : ''}`}
-                      onClick={() => canPlayItem && onPlayItem?.(item)}
-                      disabled={!canPlayItem}
+                      className={`item-btn item-btn-icon${selectedItem?.id === item.id ? ' item-btn-selected' : ''}${canDiscardItem ? ' item-btn-discardable' : ''}`}
+                      onClick={() => {
+                        if (infoMode && onShowInfo && itemTooltip) {
+                          onShowInfo(itemTooltip);
+                        } else if (canDiscardItem) {
+                          onDiscardItem?.(item);
+                        } else if (canPlayItem && TARGETED_ITEM_TYPES.includes(item.type)) {
+                          onPlayItem?.(item);
+                        }
+                      }}
+                      disabled={!canPlayItem && !canDiscardItem && !infoMode}
                       title={`${ITEM_LABELS[item.type] || item.type}${item.points !== 0 ? ` (${item.points} pts)` : ''}`}
                     >
                       <span className={`item-icon ${item.type === 'RottenApple' ? 'item-icon-rotten' : ''}`}>
@@ -81,7 +105,8 @@ export function PlayerPanel({
                     </button>
                   </Tooltip>
                 </li>
-              ))}
+              );
+              })}
             </ul>
           ) : (
             <span className="no-items">Items: {player.itemCards.length} cards</span>

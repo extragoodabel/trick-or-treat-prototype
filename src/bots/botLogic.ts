@@ -3,6 +3,10 @@
  * Simple rule-based bots for playtesting. No AI APIs or external services.
  * Modular and easy to revise.
  *
+ * Two modes:
+ * - Simple (useSmartBots=false): Original hardcoded action order, minimal scoring
+ * - Smart (useSmartBots=true): Heuristic scoring, game-phase awareness, personality profiles
+ *
  * Avoids infinite loops by:
  * - Tracking recent movement to detect backtracking
  * - Scoring all legal moves; going home if all scores <= 0
@@ -12,13 +16,17 @@
 import type { GameState, Player, ItemCard } from '../game/types';
 import { formatTileLocation } from '../game/boardLabels';
 import { isAdjacent } from '../game/movement';
+import { selectBestAction } from './botEvaluation';
+import type { BotProfile } from './botEvaluation';
 
-export type BotActionType = 'move' | 'goHome' | 'playItem';
+export type BotActionType = 'move' | 'goHome' | 'playItem' | 'discardItem' | 'resolveMonsterEncounter';
 
 export interface BotAction {
   type: BotActionType;
   logMessage: string;
   targetTile?: { row: number; col: number };
+  /** For Binoculars: 2 tiles to peek at (or 1 if only 1 face-down remains) */
+  targetTiles?: { row: number; col: number }[];
   targetPlayerId?: string;
   item?: ItemCard;
 }
@@ -27,6 +35,23 @@ export interface BotAction {
 export interface BotMoveHistory {
   from: { row: number; col: number };
   roundNumber: number;
+}
+
+/** Recent move history for anti-loop detection (last 6 moves). */
+export interface BotPathHistory {
+  roundNumber: number;
+  moves: { from: { row: number; col: number }; to: { row: number; col: number } }[];
+}
+
+export const BOT_PATH_HISTORY_MAX = 6;
+
+export interface GetBotActionOptions {
+  /** When true, use heuristic scoring and game-phase awareness. When false, use original simple logic. */
+  useSmartBots?: boolean;
+  /** Personality profile for smart bots: greedy, cautious, aggressive, comeback */
+  profile?: BotProfile;
+  /** Recent path history for anti-loop detection (smart bots only). */
+  pathHistory?: BotPathHistory | null;
 }
 
 /** Get a random first-row tile for starting position. Multiple players may choose same tile. */
@@ -98,8 +123,11 @@ function scoreMove(
     return tile.itemCollected ? -2 : 6;
   }
 
-  // Non-productive: Monster (we trigger effect, no gain)
-  if (tile.card?.type === 'Monster') return 1;
+  // Non-productive: Monster (we trigger effect, no gain). Werewolf causes direction loops.
+  if (tile.card?.type === 'Monster') {
+    const mt = tile.card.monsterType ?? '';
+    return mt === 'Werewolf' ? -2 : 1;
+  }
 
   // King Size Bar: high value (5-7 pts) — only if not yet claimed
   if (tile.card?.type === 'KingSizeBar') return tile.itemCollected ? -2 : 12;
@@ -112,15 +140,15 @@ function scoreMove(
 }
 
 /**
- * Get a legal action for a bot player. Uses scoring to avoid loops:
- * - Prefer productive moves (flip, collect candy, draw item)
- * - Avoid backtracking and non-productive movement
- * - Go home if all legal moves score <= 0
+ * Get a legal action for a bot player.
+ * When useSmartBots is true: uses heuristic scoring, game-phase awareness, personality profiles.
+ * When useSmartBots is false: uses original simple logic (productive moves, avoid backtracking, go home if none).
  */
 export function getBotAction(
   state: GameState,
   playerId: string,
-  lastMoveFrom?: BotMoveHistory | null
+  lastMoveFrom?: BotMoveHistory | null,
+  options?: GetBotActionOptions
 ): BotAction | null {
   const player = state.players.find((p) => p.id === playerId);
   if (!player || player.controllerType !== 'bot' || player.isHome || player.skipNextTurn) {
@@ -132,7 +160,95 @@ export function getBotAction(
   if (state.gamePhase !== 'playing') return null;
 
   const validHistory = lastMoveFrom?.roundNumber === state.roundNumber ? lastMoveFrom : null;
+  const pathHistory =
+    options?.pathHistory?.roundNumber === state.roundNumber ? options.pathHistory : null;
 
+  if (state.monsterEncountered) {
+    const encAction = getBotMonsterEncounterAction(state, player, options?.useSmartBots);
+    if (encAction) return encAction;
+  }
+
+  if (options?.useSmartBots) {
+    return selectBestAction(state, player, validHistory, options.profile ?? 'greedy', pathHistory);
+  }
+
+  return getBotActionSimple(state, player, validHistory);
+}
+
+function getBotMonsterEncounterAction(
+  state: GameState,
+  player: Player,
+  useSmartBots?: boolean
+): BotAction | null {
+  const enc = state.monsterEncountered;
+  if (!enc) return null;
+
+  const tile = state.board[enc.row]?.[enc.col];
+  const card = tile?.card;
+  if (!card || card.type !== 'Monster') return null;
+
+  const hasFlashlight = player.itemCards.some((c) => c.type === 'Flashlight');
+  if (!hasFlashlight) {
+    return { type: 'resolveMonsterEncounter', logMessage: `${player.name} faces the monster.` };
+  }
+
+  const shouldUseFlashlight = useSmartBots
+    ? shouldBotUseFlashlightDefensively(state, player, card)
+    : shouldBotUseFlashlightDefensivelySimple(state, player);
+
+  if (shouldUseFlashlight) {
+    const item = player.itemCards.find((c) => c.type === 'Flashlight')!;
+    return {
+      type: 'playItem',
+      logMessage: `${player.name} used Flashlight to negate ${card.monsterType ?? 'Monster'}!`,
+      item,
+      targetTile: { row: enc.row, col: enc.col },
+    };
+  }
+
+  return { type: 'resolveMonsterEncounter', logMessage: `${player.name} faces the monster.` };
+}
+
+function shouldBotUseFlashlightDefensivelySimple(state: GameState, player: Player): boolean {
+  const enc = state.monsterEncountered;
+  if (!enc) return false;
+  const tile = state.board[enc.row]?.[enc.col];
+  const card = tile?.card;
+  if (!card || card.type !== 'Monster') return false;
+  const mt = card.monsterType ?? '';
+  if (mt === 'Zombie' || mt === 'Ghost') return player.roundCandy >= 3;
+  return player.roundCandy >= 5;
+}
+
+function shouldBotUseFlashlightDefensively(
+  _state: GameState,
+  player: Player,
+  card: { monsterType?: string }
+): boolean {
+  const mt = card.monsterType ?? '';
+  const roundCandy = player.roundCandy ?? 0;
+
+  const MONSTER_SEVERITY: Record<string, number> = {
+    Zombie: 4,
+    Ghost: 3,
+    Goblin: 2,
+    Vampire: 2,
+    Witch: 1,
+    Skeleton: 0.5,
+    Werewolf: 0.5,
+  };
+  const severity = MONSTER_SEVERITY[mt] ?? 2;
+  const candyAtRisk = roundCandy;
+  const threshold = severity * 1.5;
+  return candyAtRisk >= threshold || (mt === 'Zombie' && roundCandy > 0);
+}
+
+/** Original simple bot logic (used when useSmartBots is false). */
+function getBotActionSimple(
+  state: GameState,
+  player: Player,
+  lastMoveFrom: BotMoveHistory | null
+): BotAction | null {
   // 1. Consider useful item plays (high priority) - these bypass move scoring
   const itemAction = evaluateItemPlay(state, player);
   if (itemAction) return itemAction;
@@ -142,7 +258,7 @@ export function getBotAction(
 
   for (let r = 0; r < state.board.length; r++) {
     for (let c = 0; c < state.board[r].length; c++) {
-      const score = scoreMove(state, player, r, c, validHistory);
+      const score = scoreMove(state, player, r, c, lastMoveFrom);
       if (score > -10) {
         candidates.push({ row: r, col: c, score });
       }
@@ -245,15 +361,19 @@ function findBestShortcutTarget(state: GameState, player: Player): { row: number
   return best ? { row: best.row, col: best.col } : null;
 }
 
-/** Prefer flipped monsters (remove), then face-down tiles (reveal). */
+/** Flashlight: adjacent tiles only. Prefer flipped monsters, then face-down. */
 function findFlashlightTarget(state: GameState, player: Player): { row: number; col: number } | null {
+  const pos = player.pawnPosition;
+  if (!pos) return null;
+
   let flippedMonster: { row: number; col: number } | null = null;
   let faceDown: { row: number; col: number } | null = null;
   for (let r = 0; r < state.board.length; r++) {
     for (let c = 0; c < state.board[r].length; c++) {
+      if (!isAdjacent(pos.row, pos.column, r, c)) continue;
       const t = state.board[r][c];
       if (!t || t.isClosed || !t.card) continue;
-      if (t.card.type === 'Monster' && t.isFlipped && t.card.monsterType !== player.costume) {
+      if (t.card.type === 'Monster' && t.isFlipped) {
         flippedMonster = { row: r, col: c };
       } else if (!t.isFlipped && !faceDown) {
         faceDown = { row: r, col: c };

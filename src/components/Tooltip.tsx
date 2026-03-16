@@ -7,13 +7,19 @@ interface TooltipProps {
   children: React.ReactNode;
   /** Optional: prefer positioning above/below/left/right */
   placement?: 'top' | 'bottom' | 'left' | 'right';
+  /** When true: render children only, no hover tooltip (used on mobile to avoid lingering tooltips) */
+  disableHover?: boolean;
 }
 
 export function Tooltip({
   content,
   children,
   placement = 'top',
+  disableHover = false,
 }: TooltipProps) {
+  if (disableHover || !content) {
+    return <>{children}</>;
+  }
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -81,10 +87,6 @@ export function Tooltip({
       return () => window.removeEventListener('scroll', onScroll, true);
     }
   }, [visible, updatePosition]);
-
-  if (!content) {
-    return <>{children}</>;
-  }
 
   return (
     <div

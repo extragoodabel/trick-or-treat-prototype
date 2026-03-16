@@ -5,33 +5,20 @@ import {
   getMansionDeckForRound,
   shuffle,
 } from './cardDefinitions';
+import { getRoundStartingPlayer } from './gameEngine';
 
 export function createInitialPlayers(
   count: number,
-  costumes?: string[],
   controllerTypes?: ControllerType[]
 ): Player[] {
-  const costumeTypes = [
-    'Ghost',
-    'Zombie',
-    'Witch',
-    'Skeleton',
-    'Werewolf',
-    'Goblin',
-    'Vampire',
-  ] as const;
   const players: Player[] = [];
   for (let i = 0; i < count; i++) {
-    const costume =
-      costumes?.[i] && costumeTypes.includes(costumes[i] as (typeof costumeTypes)[number])
-        ? (costumes[i] as (typeof costumeTypes)[number])
-        : costumeTypes[i % costumeTypes.length];
     const ctrl = controllerTypes?.[i] ?? 'human';
-    const name = ctrl === 'bot' ? `${costume} Bot` : `Player ${i + 1}`;
+    const name = ctrl === 'bot' ? `Bot ${i + 1}` : `Player ${i + 1}`;
     players.push({
       id: `player-${i}`,
       name,
-      costume,
+      costume: 'Ghost', // Internal placeholder; identity is color-based
       controllerType: ctrl,
       pawnPosition: null,
       bankedCandy: 0,
@@ -109,14 +96,16 @@ export function setupNewNeighborhood(
     skipNextTurn: false,
   }));
 
+  const { index: startIndex, reason: startReason } = getRoundStartingPlayer(players);
   const gamePhase = devSkipToMansion ? 'playing' : 'chooseStartingPosition';
   const tileOccupancyOrder: Record<string, string[]> = devSkipToMansion
     ? { '4,0': players.map((p) => p.id) }
     : {};
+  const starter = players[startIndex];
   const message =
     gamePhase === 'chooseStartingPosition'
-      ? `${players[0].name}, choose your starting house (first row)`
-      : `Neighborhood ${state.roundNumber + 1} - ${players[0].name}'s turn`;
+      ? `${startReason} Choose your starting house (first row).`
+      : `${startReason} ${starter.name}'s turn.`;
 
   if (devRevealAll) {
     for (let r = 0; r < board.length; r++) {
@@ -133,7 +122,8 @@ export function setupNewNeighborhood(
     houseDeck,
     mansionDeck,
     candySupply: GAME_RULES.initialCandySupply,
-    currentPlayerIndex: 0,
+    currentPlayerIndex: startIndex,
+    roundStartingPlayerIndex: startIndex,
     playDirection: 1,
     gamePhase,
     selectedAction: null,
@@ -141,6 +131,8 @@ export function setupNewNeighborhood(
     message,
     lastAffectedPlayerIds: undefined,
     lastActionDescription: undefined,
+    botPeekedTiles: undefined,
+    monsterEncountered: undefined,
     tileOccupancyOrder,
   };
 }

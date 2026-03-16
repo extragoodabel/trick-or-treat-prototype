@@ -39,7 +39,7 @@ When you move to a tile:
 
 **Item / Candy Item 🎁** — Draw a card. Item cards can be played for effects; Candy Item cards are scoring only (2–3 points).
 
-**Monster 👻🧟💀** — Each monster has a different effect. Match your costume to be immune! Ghost: lose 1 candy. Zombie: skip next turn. Witch: swap hands. Skeleton: reveal hand. Werewolf: reverse play direction. Goblin: fewest-cards player takes from you. Vampire: give 1 candy to player with least.
+**Monster 👻🧟💀** — Each monster has a different effect. Ghost: lose 1 candy. Zombie: skip next turn. Witch: swap hands. Skeleton: reveal hand to all for one round (hidden at start of your next turn). Werewolf: reverse play direction. Goblin: fewest-cards player takes from you. Vampire: give 1 candy to player with least.
 
 **King Size Bar 🍫** — Mansion only. Take into hand, worth 5–7 points.
 
@@ -62,6 +62,18 @@ When you move to a tile:
     icon: '🏆',
     title: 'Winning',
     content: `After three neighborhoods, the game ends. Score = banked candy (1 pt each) + item card points. King Size Bar 5–7, Candy Item 2–3, Pennies/Rotten Apple -1, Toothbrush -3. Highest score wins!`,
+  },
+  {
+    id: 'items',
+    icon: '🔦',
+    title: 'Items',
+    content: `**Flashlight 🔦** — Use on an adjacent house to reveal/clear a monster, or use immediately after landing on a monster to negate its effect. Cannot target distant tiles.
+
+**Shortcut 🗺️** — Move instantly to any house (except mansion row). Use to reach high-value tiles or escape danger.
+
+**Intrusive Thoughts 😈** — Use on a Candy Bucket (while standing on it) to take all remaining tokens plus 4 from supply, then close the tile.
+
+**Binoculars 🔭** — Peek at two face-down houses. Cards are revealed briefly; board state unchanged.`,
   },
   {
     id: 'board-navigation',

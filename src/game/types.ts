@@ -56,7 +56,7 @@ export interface Tile {
   isSpent?: boolean;
 }
 
-// Costume types (match monster types)
+// Costume types (cosmetic / character identity only)
 export type CostumeType = MonsterType;
 
 // Controller type: human or bot
@@ -108,7 +108,7 @@ export interface GameState {
   totalRounds: number;
   playerColors: string[];
   gamePhase: GamePhase;
-  selectedAction: 'move' | 'goHome' | 'playItem' | null;
+  selectedAction: 'move' | 'goHome' | 'playItem' | 'discardItem' | null;
   pendingItemPlay: ItemCard | null;
   message: string;
   turnLog: string[];
@@ -135,6 +135,16 @@ export interface GameState {
     revealMessage: string;
     phase: 'beam' | 'reveal';
   };
-  /** Binoculars: peeked tile coords for UI */
-  binocularsPeek?: { row: number; col: number }[];
+  /** Binoculars: tiles selected during targeting (before reveal) */
+  binocularsSelection?: { row: number; col: number }[];
+  /** Binoculars: tiles temporarily revealed for peek (display-only; board state unchanged) */
+  binocularsReveal?: { row: number; col: number }[];
+  /** Who goes first this round (for choose-start wrap-around) */
+  roundStartingPlayerIndex?: number;
+  /** Bot memory: cards peeked via Binoculars. playerId -> "row,col" -> card. Cleared each round. */
+  botPeekedTiles?: Record<string, Record<string, TileCard>>;
+  /** When bot uses Binoculars, item to consume after reveal (so useEffect can complete). */
+  binocularsItemToConsume?: ItemCard;
+  /** Player just landed on a monster; may use Flashlight defensively before resolving. */
+  monsterEncountered?: { row: number; col: number };
 }

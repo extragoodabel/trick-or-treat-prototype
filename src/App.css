@@ -44,6 +44,89 @@
   }
 }
 
+/* ---------- Mobile Info Mode (touch devices) ---------- */
+.info-mode-btn {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--halloween-parchment-text);
+  background: var(--halloween-house-dark);
+  border: 1px solid var(--halloween-autumn-brown);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.info-mode-btn:hover {
+  background: var(--halloween-autumn-brown);
+}
+.info-mode-btn.active {
+  background: var(--halloween-lantern);
+  color: var(--halloween-house-dark);
+  box-shadow: 0 0 12px rgba(255, 195, 0, 0.4);
+}
+
+.info-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  animation: info-panel-backdrop-in 0.2s ease-out;
+}
+@keyframes info-panel-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.info-panel {
+  width: 100%;
+  max-width: 400px;
+  max-height: 40vh;
+  overflow-y: auto;
+  background: var(--halloween-house-dark);
+  border: 1px solid var(--halloween-autumn-brown);
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.5);
+  padding: 1rem 1.25rem 1.5rem;
+  position: relative;
+  animation: info-panel-slide-up 0.25s ease-out;
+}
+@keyframes info-panel-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.info-panel-content {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--halloween-parchment-text);
+  padding-right: 2rem;
+}
+
+.info-panel-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  font-size: 1.1rem;
+  color: var(--halloween-parchment-text);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.info-panel-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .app {
   padding: 1rem;
   max-width: 1200px;
@@ -72,7 +155,7 @@
 
 .app-title {
   margin: 0;
-  font-family: 'Quicksand', 'Nunito', sans-serif;
+  font-family: 'Creepster', 'Quicksand', 'Nunito', sans-serif;
   font-weight: 700;
   font-size: 1.25rem;
   color: var(--halloween-lantern);
@@ -246,7 +329,7 @@
 .round-end h1 {
   text-align: center;
   margin-bottom: 1.5rem;
-  font-family: 'Quicksand', 'Nunito', sans-serif;
+  font-family: 'Creepster', 'Quicksand', 'Nunito', sans-serif;
   font-weight: 700;
   color: var(--halloween-lantern);
   text-shadow: 0 0 20px rgba(255, 195, 0, 0.3);
@@ -732,7 +815,7 @@
 
 .header h1 {
   margin: 0 0 0.5rem 0;
-  font-family: 'Quicksand', 'Nunito', sans-serif;
+  font-family: 'Creepster', 'Quicksand', 'Nunito', sans-serif;
   font-weight: 700;
   font-size: 1.75rem;
   color: var(--halloween-lantern);
@@ -857,13 +940,22 @@
   margin-bottom: 0.2rem;
 }
 
-.costume {
-  font-size: 1.25rem;
-  filter: drop-shadow(0 0 4px rgba(255, 195, 0, 0.3));
+.player-color-dot {
+  width: 0.75rem;
+  height: 0.75rem;
+  min-width: 0.75rem;
+  min-height: 0.75rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 12px currentColor;
 }
 
-.sidebar-left .costume {
-  font-size: 1.1rem;
+.sidebar-left .player-color-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  min-width: 0.65rem;
+  min-height: 0.65rem;
 }
 
 .name {
@@ -976,6 +1068,18 @@
   border-color: var(--halloween-lantern) !important;
   box-shadow: 0 0 12px rgba(255, 195, 0, 0.4), inset 0 0 8px rgba(255, 195, 0, 0.15) !important;
   transform: scale(1.08);
+}
+
+/* Discard mode: items are selectable for discard */
+.item-btn-discardable {
+  border-color: var(--halloween-muted-brown);
+  box-shadow: 0 0 0 1px rgba(200, 150, 100, 0.4);
+}
+
+.item-btn-discardable:hover:not(:disabled) {
+  border-color: #c0392b;
+  box-shadow: 0 0 8px rgba(192, 57, 43, 0.35);
+  background: rgba(192, 57, 43, 0.15);
 }
 
 .item-btn:disabled {
@@ -1544,44 +1648,11 @@
   cursor: default;
 }
 
-/* Active player's current tile - player color outline and glow */
-.tile.current-player-tile {
-  border-color: var(--tile-accent-color, var(--halloween-lantern));
-  box-shadow: 0 0 12px var(--tile-accent-color, var(--halloween-lantern));
-}
-
-/* Valid move destinations - subtle highlight in player color */
-/* When tile is also occupied, legal-move styling takes precedence over occupant tint */
-.tile.valid-move {
-  border-color: var(--tile-accent-color, var(--halloween-lantern));
-  box-shadow: 0 0 8px var(--tile-accent-color, var(--halloween-lantern));
-  opacity: 1;
-}
-
-/* Valid move to occupied tile: outer = current player, inner = occupant(s) in arrival order */
-.tile.valid-move.has-pawn {
-  border-color: var(--tile-accent-color, var(--halloween-lantern));
-  box-shadow:
-    var(--pawn-inset-rings, inset 0 0 0 2px var(--pawn-color, var(--halloween-lantern))),
-    0 0 10px var(--tile-accent-color, var(--halloween-lantern));
-}
-
-.tile.valid-move:hover:not(:disabled) {
-  border-color: var(--tile-accent-color, var(--halloween-lantern));
-  box-shadow: 0 0 14px var(--tile-accent-color, var(--halloween-lantern));
+/* Legal move / current tile outline - uses --tile-legal-outline (see .tile.valid-move above) */
+.tile.valid-move:hover:not(:disabled),
+.tile.selectable-start:hover:not(:disabled) {
   transform: scale(1.02);
-}
-
-/* Selectable for start / selected - stronger highlight */
-.tile.selectable-start,
-.tile.selected:not(.current-player-tile):not(.valid-move) {
-  border-color: var(--tile-accent-color, var(--halloween-lantern));
-  box-shadow: 0 0 14px var(--tile-accent-color, var(--halloween-lantern));
-}
-
-.tile.selectable-start:hover:not(:disabled),
-.tile.selected:not(.current-player-tile):hover:not(:disabled) {
-  transform: scale(1.02);
+  box-shadow: 0 0 14px var(--tile-legal-outline, var(--halloween-lantern));
 }
 
 .tile.closed {
@@ -1637,42 +1708,44 @@
   box-shadow: 0 0 22px rgba(124, 58, 237, 0.55);
 }
 
-/* Occupied tile: show occupant color(s) - multi-ring when multiple players (first arrival = innermost) */
-.tile.has-pawn:not(.valid-move):not(.current-player-tile) {
-  border-color: var(--pawn-color, var(--halloween-lantern));
-  box-shadow: var(--pawn-inset-rings, none), 0 0 12px var(--pawn-color, var(--halloween-lantern));
+/* Occupancy: tile fill = who is on the tile (solid or striped for multi-player) */
+.tile.has-occupancy {
+  background: var(--tile-occupancy-fill) !important;
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.25);
+}
+
+.tile.has-occupancy.revealed {
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.2), inset 0 0 12px rgba(255, 255, 255, 0.08);
+}
+
+.tile.has-occupancy .tile-content {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 4px rgba(255, 255, 255, 0.3));
+}
+
+/* Legal move = outline only (distinct from tile fill) */
+.tile.valid-move,
+.tile.selectable-start,
+.tile.current-player-tile {
+  border-width: 3px;
+  border-color: var(--tile-legal-outline, var(--halloween-lantern));
+  box-shadow: 0 0 10px var(--tile-legal-outline, var(--halloween-lantern));
+}
+
+.tile.valid-move.has-occupancy,
+.tile.selectable-start.has-occupancy {
+  border-color: var(--tile-legal-outline, var(--halloween-lantern));
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.2), 0 0 10px var(--tile-legal-outline, var(--halloween-lantern));
+}
+
+/* Binoculars: tiles selected during targeting */
+.tile.binoculars-selected {
+  border-width: 3px;
+  border-color: var(--halloween-lantern);
+  box-shadow: 0 0 12px rgba(255, 195, 0, 0.6), inset 0 0 8px rgba(255, 195, 0, 0.15);
 }
 
 .tile.pawn-moving .tile-pawns {
   display: none;
-}
-
-.tile-pawns {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 2px;
-  padding: 2px;
-  pointer-events: none;
-}
-
-.tile-pawn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.2em;
-  height: 1.2em;
-  min-width: 0.9rem;
-  min-height: 0.9rem;
-  border-radius: 50%;
-  font-size: 0.65rem;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  line-height: 1;
 }
 
 .tile-content {
@@ -1754,6 +1827,15 @@
   box-shadow: 0 0 14px rgba(255, 195, 0, 0.25);
 }
 
+.controls button.controls-monster-continue {
+  background: linear-gradient(180deg, #8b3a3a 0%, #6b2020 100%);
+  color: #fff;
+  border-color: #a04040;
+}
+.controls button.controls-monster-continue:hover {
+  background: linear-gradient(180deg, #9b4a4a 0%, #7b3030 100%);
+  border-color: #b05050;
+}
 .controls button.active {
   background: linear-gradient(180deg, var(--halloween-pumpkin-light) 0%, var(--halloween-pumpkin) 100%);
   color: #1a0f2e;
@@ -1783,10 +1865,15 @@
   min-height: 2.5rem;
 }
 
-.live-status-costume {
-  font-size: 1.5rem;
+.live-status-color {
+  width: 1rem;
+  height: 1rem;
+  min-width: 1rem;
+  min-height: 1rem;
+  border-radius: 50%;
   flex-shrink: 0;
-  filter: drop-shadow(0 0 6px currentColor);
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 8px currentColor;
 }
 
 .live-status-text {
@@ -1970,8 +2057,9 @@
   .app--game-view .sidebar-left .player-header {
     margin-bottom: 0.15rem;
   }
-  .app--game-view .sidebar-left .costume {
-    font-size: 1rem;
+  .app--game-view .sidebar-left .player-color-dot {
+    width: 0.6rem;
+    height: 0.6rem;
   }
   .app--game-view .sidebar-left .player-stats {
     font-size: 0.8rem;
@@ -2068,8 +2156,9 @@
   .app--game-view .sidebar-left .player-header {
     margin-bottom: 0.1rem;
   }
-  .app--game-view .sidebar-left .costume {
-    font-size: 0.95rem;
+  .app--game-view .sidebar-left .player-color-dot {
+    width: 0.55rem;
+    height: 0.55rem;
   }
   .app--game-view .sidebar-left .name {
     font-size: 0.85rem;
@@ -2208,8 +2297,9 @@
   .app--game-view .sidebar-left .player-header {
     margin-bottom: 0.08rem;
   }
-  .app--game-view .sidebar-left .costume {
-    font-size: 0.85rem;
+  .app--game-view .sidebar-left .player-color-dot {
+    width: 0.5rem;
+    height: 0.5rem;
   }
   .app--game-view .sidebar-left .name {
     font-size: 0.8rem;
@@ -2348,7 +2438,7 @@
   margin: 0;
   font-size: 1.25rem;
   color: var(--halloween-lantern);
-  font-family: 'Quicksand', 'Nunito', sans-serif;
+  font-family: 'Creepster', 'Quicksand', 'Nunito', sans-serif;
 }
 
 .rules-close-btn {
@@ -2638,8 +2728,9 @@
     min-width: 0;
   }
 
-  .app--game-view .sidebar-left .player-panel .costume {
-    font-size: 0.9rem;
+  .app--game-view .sidebar-left .player-panel .player-color-dot {
+    width: 0.5rem;
+    height: 0.5rem;
   }
 
   .app--game-view .sidebar-left .player-panel .name {

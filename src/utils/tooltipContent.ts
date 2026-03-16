@@ -12,6 +12,8 @@ export const TILE_TOOLTIPS: Record<string, string> = {
   FaceDown: 'House: flip to reveal what\'s inside.',
   CandyBucket:
     'Candy Bucket: collect 1 candy the first time you visit this house, if candy remains.',
+  EmptyCandyBucket:
+    'Candy Bucket (empty): all candy has been claimed. Nothing left to collect.',
   Item:
     'Gift House: landing here gives you an item card.',
   CandyItem:
@@ -30,7 +32,7 @@ export const MONSTER_TOOLTIPS: Record<MonsterType, string> = {
   Ghost: 'Ghost: lose 1 round candy when you land here.',
   Zombie: 'Zombie: lose your next turn when you land here.',
   Witch: 'Witch: swap your entire item hand with another player.',
-  Skeleton: 'Skeleton: reveal your hand to all players.',
+  Skeleton: 'Skeleton: reveal your hand to all players for one round. Hidden again at the start of your next turn.',
   Werewolf: 'Werewolf: reverse direction of play.',
   Goblin:
     'Goblin: the player with fewest cards takes one random card from your hand.',
@@ -42,7 +44,8 @@ export function getTileTooltip(
   cardType: string | null,
   monsterType?: MonsterType,
   isFlipped?: boolean,
-  itemCollected?: boolean
+  itemCollected?: boolean,
+  candyBucketEmpty?: boolean
 ): string | null {
   if (!isFlipped && !cardType) {
     return TILE_TOOLTIPS.FaceDown;
@@ -56,6 +59,9 @@ export function getTileTooltip(
   if (cardType === 'KingSizeBar' && itemCollected) {
     return TILE_TOOLTIPS.UsedKingSizeBar;
   }
+  if (cardType === 'CandyBucket' && candyBucketEmpty) {
+    return TILE_TOOLTIPS.EmptyCandyBucket;
+  }
   return cardType ? (TILE_TOOLTIPS[cardType] ?? null) : null;
 }
 
@@ -63,13 +69,13 @@ export function getTileTooltip(
 
 export const ITEM_TOOLTIPS: Record<ItemCardType, string> = {
   Flashlight:
-    'Flashlight: negate a monster effect after flipping or moving onto a monster tile.',
+    'Flashlight: use on an adjacent house to reveal/clear a monster, or use immediately after landing on a monster to negate its effect.',
   Binoculars:
-    'Binoculars: peek at any 2 face-down house cards anywhere on the board.',
+    'Binoculars: select two face-down houses to peek at. Cards are revealed for ~3 seconds, then flip back. Board state is unchanged.',
   Shortcut:
-    'Shortcut: move instantly to any house on the board (cannot target mansion row).',
+    'Shortcut: move instantly to any house (except mansion row). Use to reach high-value tiles or escape danger.',
   IntrusiveThoughts:
-    'Intrusive Thoughts: use on a Candy Bucket tile to take all remaining tokens plus 4 from supply, then close the tile.',
+    'Intrusive Thoughts: use on a Candy Bucket (while standing on it) to take all remaining tokens plus 4 from supply, then close the tile.',
   Toothbrush:
     'Toothbrush: if Old Man Johnson flips while you\'re out, lose 3 points instead of all round candy. Always -3 at scoring.',
   Pennies: 'Pennies: worth -1 point.',

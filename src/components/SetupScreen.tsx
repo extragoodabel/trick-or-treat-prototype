@@ -1,7 +1,6 @@
-import type { CostumeType, ControllerType } from '../game/types';
+import type { ControllerType } from '../game/types';
 import { COLOR_NAMES, type GameConfig } from '../game/gameConfig';
 
-const COSTUMES: (CostumeType | 'Random')[] = ['Random', 'Ghost', 'Zombie', 'Witch', 'Skeleton', 'Werewolf', 'Goblin', 'Vampire'];
 const COLORS = ['Random', ...COLOR_NAMES];
 
 interface SetupScreenProps {
@@ -9,16 +8,6 @@ interface SetupScreenProps {
   onConfigChange: (config: GameConfig) => void;
   onStartGame: () => void;
   onShowRules: () => void;
-}
-
-/** Options available for a player: all options minus those chosen by other players */
-function getAvailableCostumes(config: GameConfig, excludePlayerIndex: number): (CostumeType | 'Random')[] {
-  const chosen = new Set(
-    config.costumes
-      .map((c, i) => (i !== excludePlayerIndex && c !== 'Random' ? c : null))
-      .filter(Boolean)
-  );
-  return COSTUMES.filter((c) => c === 'Random' || !chosen.has(c));
 }
 
 function getAvailableColors(config: GameConfig, excludePlayerIndex: number): string[] {
@@ -42,12 +31,8 @@ export function SetupScreen({
   };
 
   const setPlayerCount = (n: number) => {
-    const nextCostumes = [...config.costumes];
     const nextColors = [...(config.colors ?? [])];
     const nextControllers = [...config.controllerTypes];
-    while (nextCostumes.length < n) {
-      nextCostumes.push('Random');
-    }
     while (nextColors.length < n) {
       nextColors.push('Random');
     }
@@ -56,7 +41,6 @@ export function SetupScreen({
     }
     updateConfig({
       playerCount: n,
-      costumes: nextCostumes.slice(0, n),
       colors: nextColors.slice(0, n),
       controllerTypes: nextControllers.slice(0, n),
     });
@@ -72,7 +56,6 @@ export function SetupScreen({
       </header>
 
       <div className="setup-sections">
-        {/* Section 1: Players (number on top, then Player 1, 2, etc. / Costume / Color) */}
         <section className="setup-section">
           <h2>Players</h2>
           <label>
@@ -86,13 +69,8 @@ export function SetupScreen({
             />
           </label>
           {Array.from({ length: config.playerCount }, (_, i) => {
-            const availableCostumes = getAvailableCostumes(config, i);
             const availableColors = getAvailableColors(config, i);
-            const currentCostume = config.costumes[i] || 'Random';
             const currentColor = config.colors?.[i] ?? 'Random';
-            const effectiveCostume = availableCostumes.includes(currentCostume as CostumeType | 'Random')
-              ? currentCostume
-              : 'Random';
             const effectiveColor = availableColors.includes(currentColor) ? currentColor : 'Random';
 
             return (
@@ -110,23 +88,6 @@ export function SetupScreen({
                   >
                     <option value="human">Human</option>
                     <option value="bot">Bot</option>
-                  </select>
-                </label>
-                <label>
-                  <select
-                    value={effectiveCostume}
-                    onChange={(e) => {
-                      const v = e.target.value as CostumeType | 'Random';
-                      const next = [...config.costumes];
-                      next[i] = v;
-                      updateConfig({ costumes: next });
-                    }}
-                  >
-                    {availableCostumes.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
                   </select>
                 </label>
                 <label>
@@ -151,11 +112,10 @@ export function SetupScreen({
             );
           })}
           <p className="setup-hint">
-            Costume and color default to Random; chosen options are unique per player.
+            Color defaults to Random; chosen options are unique per player.
           </p>
         </section>
 
-        {/* Section 2: Number of Neighborhoods */}
         <section className="setup-section setup-section--secondary">
           <h2>Number of Neighborhoods</h2>
           <div className="setup-rounds">
