@@ -45,6 +45,8 @@ import {
   saveBotIntelligence,
   loadBotProfile,
   saveBotProfile,
+  loadTooltipsEnabled,
+  saveTooltipsEnabled,
 } from './config/botTiming';
 import { SetupScreen } from './components/SetupScreen';
 import { InfoPanel } from './components/InfoPanel';
@@ -84,6 +86,7 @@ export default function App() {
   const isMobile = useIsMobile();
   const [infoMode, setInfoMode] = useState(false);
   const [infoPanelContent, setInfoPanelContent] = useState<string | null>(null);
+  const [tooltipsEnabled, setTooltipsEnabled] = useState(loadTooltipsEnabled);
 
   // Ender reveal: reset moment flag only when first entering roundEnd with lastEnderReveal
   useEffect(() => {
@@ -403,7 +406,7 @@ export default function App() {
             item.type === 'Binoculars'
               ? 'Select two face-down houses to peek at.'
               : item.type === 'Flashlight'
-                ? 'Select an adjacent house, or the monster you landed on to negate.'
+                ? 'Select an adjacent house, or the monster you landed on to scare away.'
                 : `Choose target for ${item.type}`,
         });
       }
@@ -472,19 +475,26 @@ export default function App() {
           <p className="round-info">
             Neighborhood {state.roundNumber + 1}/{state.totalRounds} • Choose starting houses
           </p>
-          {isMobile && (
-            <button
-              type="button"
-              className={`info-mode-btn ${infoMode ? 'active' : ''}`}
-              onClick={() => {
+          <button
+            type="button"
+            className={`info-mode-btn ${isMobile ? (infoMode ? 'active' : '') : (tooltipsEnabled ? 'active' : '')}`}
+            onClick={() => {
+              if (isMobile) {
                 setInfoMode((v) => !v);
                 setInfoPanelContent(null);
-              }}
-              aria-pressed={infoMode}
-            >
-              {infoMode ? 'Info ✓' : 'Info'}
-            </button>
-          )}
+              } else {
+                setTooltipsEnabled((v) => {
+                  const next = !v;
+                  saveTooltipsEnabled(next);
+                  return next;
+                });
+              }
+            }}
+            aria-pressed={isMobile ? infoMode : tooltipsEnabled}
+            title={isMobile ? (infoMode ? 'Info Mode ON — taps explain' : 'Info Mode OFF — taps play') : (tooltipsEnabled ? 'Hover tooltips ON — hover to see info' : 'Hover tooltips OFF — click to toggle')}
+          >
+            {isMobile ? (infoMode ? 'Info ✓' : 'Info') : (tooltipsEnabled ? 'Info ✓' : 'Info')}
+          </button>
           <button type="button" className="rules-btn" onClick={() => setShowRules(true)}>
             Rules
           </button>
@@ -506,7 +516,7 @@ export default function App() {
                   color={state.playerColors[i]}
                   infoMode={isMobile && infoMode}
                   onShowInfo={isMobile ? handleShowInfo : undefined}
-                  disableTooltipHover={isMobile}
+                  disableTooltipHover={isMobile || !tooltipsEnabled}
                   showHand={showAllHands || player.controllerType === 'human' || player.handRevealed}
                   isAffected={false}
                 />
@@ -598,7 +608,7 @@ export default function App() {
                     playerColors={state.playerColors}
                     infoMode={isMobile && infoMode}
                     onShowInfo={isMobile ? handleShowInfo : undefined}
-                    disableTooltipHover={isMobile}
+                    disableTooltipHover={isMobile || !tooltipsEnabled}
                   />
                 </div>
               </div>
@@ -661,7 +671,9 @@ export default function App() {
     isFlashlightReveal
       ? formatTurnLogWithIcons(state.message)
       : state.monsterEncountered && canAct
-        ? 'Monster encountered! Use Flashlight to negate, or Face Monster to resolve.'
+        ? (currentPlayer.itemCards.some((c) => c.type === 'Flashlight')
+            ? 'Monster encountered! Use Flashlight to scare away monster, or Face Monster empty handed.'
+            : 'Monster encountered! Face Monster empty handed.')
         : isBinocularsReveal
         ? 'Peeking…'
         : canAct && isHumanTurn
@@ -683,20 +695,26 @@ export default function App() {
         <p className="round-info">
           Neighborhood {state.roundNumber + 1}/{state.totalRounds} • Candy: {state.candySupply}
         </p>
-        {isMobile && (
-          <button
-            type="button"
-            className={`info-mode-btn ${infoMode ? 'active' : ''}`}
-            onClick={() => {
+        <button
+          type="button"
+          className={`info-mode-btn ${isMobile ? (infoMode ? 'active' : '') : (tooltipsEnabled ? 'active' : '')}`}
+          onClick={() => {
+            if (isMobile) {
               setInfoMode((v) => !v);
               setInfoPanelContent(null);
-            }}
-            aria-pressed={infoMode}
-            title={infoMode ? 'Info Mode ON — taps explain' : 'Info Mode OFF — taps play'}
-          >
-            {infoMode ? 'Info ✓' : 'Info'}
-          </button>
-        )}
+            } else {
+              setTooltipsEnabled((v) => {
+                const next = !v;
+                saveTooltipsEnabled(next);
+                return next;
+              });
+            }
+          }}
+          aria-pressed={isMobile ? infoMode : tooltipsEnabled}
+          title={isMobile ? (infoMode ? 'Info Mode ON — taps explain' : 'Info Mode OFF — taps play') : (tooltipsEnabled ? 'Hover tooltips ON — hover to see info' : 'Hover tooltips OFF — click to toggle')}
+        >
+          {isMobile ? (infoMode ? 'Info ✓' : 'Info') : (tooltipsEnabled ? 'Info ✓' : 'Info')}
+        </button>
         <button
           type="button"
           className="rules-btn"
@@ -731,7 +749,7 @@ export default function App() {
                 selectedItem={player.id === currentPlayer.id ? pendingItem : null}
                 infoMode={isMobile && infoMode}
                 onShowInfo={isMobile ? handleShowInfo : undefined}
-                disableTooltipHover={isMobile}
+                disableTooltipHover={isMobile || !tooltipsEnabled}
                 showHand={showAllHands || player.controllerType === 'human' || player.handRevealed}
                 isAffected={state.lastAffectedPlayerIds?.includes(player.id) ?? false}
                 isGoblinVictim={!!(state.lastGoblinTheft && state.lastGoblinTheft.fromPlayerIndex === i)}
@@ -895,7 +913,7 @@ export default function App() {
                   pendingItem={pendingItem}
                   infoMode={isMobile && infoMode}
                   onShowInfo={isMobile ? handleShowInfo : undefined}
-                  disableTooltipHover={isMobile}
+                  disableTooltipHover={isMobile || !tooltipsEnabled}
                 />
               </div>
             </div>
@@ -912,20 +930,22 @@ export default function App() {
                   >
                     Face Monster
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isMobile && infoMode) {
-                        setInfoPanelContent(BUTTON_INFO.PlayItem);
-                        return;
-                      }
-                      setPendingItem(null);
-                      setState(selectAction(state, 'playItem'));
-                    }}
-                    className={state.selectedAction === 'playItem' ? 'active' : ''}
-                  >
-                    Play Item (Flashlight)
-                  </button>
+                  {currentPlayer.itemCards.some((c) => c.type === 'Flashlight') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isMobile && infoMode) {
+                          setInfoPanelContent(BUTTON_INFO.PlayItem);
+                          return;
+                        }
+                        setPendingItem(null);
+                        setState(selectAction(state, 'playItem'));
+                      }}
+                      className={state.selectedAction === 'playItem' ? 'active' : ''}
+                    >
+                      Play Item (Flashlight)
+                    </button>
+                  )}
                 </>
               )}
               {canAct && !state.monsterEncountered && (
@@ -1015,7 +1035,9 @@ export default function App() {
               )}
               {canAct && state.monsterEncountered && (
                 <span className="controls-hint">
-                  Use Flashlight to negate, or Face Monster to resolve.
+                  {currentPlayer.itemCards.some((c) => c.type === 'Flashlight')
+                    ? 'Use Flashlight to scare away monster, or Face Monster empty handed.'
+                    : 'Face Monster empty handed.'}
                 </span>
               )}
               {pendingItem && (
@@ -1026,7 +1048,7 @@ export default function App() {
                         : 'Select two face-down houses to peek at')
                     : pendingItem.type === 'Flashlight'
                       ? (state.monsterEncountered
-                          ? 'Select the monster you landed on to negate, or an adjacent house'
+                          ? 'Select the monster you landed on to scare away, or an adjacent house'
                           : 'Select an adjacent house to reveal/clear')
                       : `Choose tile for ${pendingItem.type}`}
                 </span>

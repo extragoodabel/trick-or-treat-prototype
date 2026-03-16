@@ -175,6 +175,28 @@ export function selectStartingPosition(
       nextState = appendToTurnLog(nextState, `${player.name} flipped Old Man Johnson at ${formatTileLocation(row, col)}`);
       return nextState;
     }
+  } else if (card && tile.isFlipped) {
+    // Tile already revealed by a previous player - resolve as if landing on it
+    if (card.type === 'CandyBucket') {
+      const visits = tile.bucketVisits?.[player.id] ?? 0;
+      const hasCandy = (tile.candyTokensOnTile ?? 0) > 0;
+      if (visits < 1 && hasCandy) {
+        const tileWithCoords = { ...tile, row, column: col };
+        nextState = resolveCandyBucket(nextState, tileWithCoords, player.id, false);
+        nextState = appendToTurnLog(nextState, `${player.name} chose ${formatTileLocation(row, col)} and collected candy.`);
+      }
+    } else if ((card.type === 'Item' || card.type === 'CandyItem') && !tile.itemCollected) {
+      const { state: itemState, itemType, itemTypeRaw } = resolveItemTile(nextState, player.id);
+      nextState = itemState;
+      nextState = {
+        ...nextState,
+        board: nextState.board.map((r, ri) =>
+          r.map((t, ci) => (ri === row && ci === col ? { ...t, itemCollected: true } : t))
+        ),
+        lastRevealedItem: { row, col, itemType: itemTypeRaw, playerIndex: state.currentPlayerIndex },
+      };
+      nextState = appendToTurnLog(nextState, `${player.name} chose ${formatTileLocation(row, col)} and drew ${itemType}.`);
+    }
   }
 
   const n = nextState.players.length;
@@ -921,10 +943,13 @@ export function move(state: GameState, row: number, col: number): GameState {
         ? (isSameTile ? `${player.name} flipped ${monsterName} at ${location}` : `${player.name} moved to ${location} and flipped ${monsterName}`)
         : `${player.name} moved to ${location} and triggered ${monsterName}`
     );
+    const hasFlashlight = player.itemCards.some((c) => c.type === 'Flashlight');
     newState = {
       ...newState,
       monsterEncountered: { row, col },
-      message: `${player.name} encountered ${monsterName}! Use Flashlight to negate, or continue to resolve.`,
+      message: hasFlashlight
+        ? `${player.name} encountered ${monsterName}! Use Flashlight to scare away monster, or Face Monster empty handed.`
+        : `${player.name} encountered ${monsterName}! Face Monster empty handed.`,
     };
     return newState;
   } else if (card.type === 'KingSizeBar') {
@@ -977,6 +1002,134 @@ export function move(state: GameState, row: number, col: number): GameState {
   return finalState;
 }
 
+/**
+ * Resolve tile when player lands via Shortcut. Flips face-down tiles and resolves (candy, item, monster, etc.).
+ */
+function resolveShortcutLanding(
+  state: GameState,
+  row: number,
+  col: number,
+  fromPos: { row: number; column: number } | null
+): GameState {
+  const tile = state.board[row]?.[col];
+  if (!tile) return state;
+  if (!tile.card) {
+    const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state, state.currentPlayerIndex, state.players);
+    return {
+      ...state,
+      players: updatedPlayers,
+      currentPlayerIndex: nextIdx,
+      message: `${updatedPlayers[nextIdx].name}'s turn.`,
+      ...(fromPos && { lastMoveForAnimation: { from: { row: fromPos.row, col: fromPos.column }, to: { row, col }, playerIndex: state.currentPlayerIndex } }),
+    };
+  }
+
+  const player = state.players[state.currentPlayerIndex];
+  const isFlip = !tile.isFlipped;
+  const location = formatTileLocation(row, col);
+
+  let newState: GameState = {
+    ...state,
+    board: isFlip
+      ? state.board.map((r, ri) =>
+          r.map((t, ci) => (ri === row && ci === col ? { ...t, isFlipped: true } : t))
+        )
+      : state.board,
+  };
+
+  const card = tile.card;
+  let candyCollected = 0;
+
+  if (card.type === 'CandyBucket') {
+    const candyBefore = newState.players[state.currentPlayerIndex].roundCandy;
+    if (isFlip) {
+      newState = resolveCandyBucket(newState, { ...tile, isFlipped: true }, player.id, true);
+      newState = appendToTurnLog(newState, `${player.name} Shortcut to ${location} and flipped Candy Bucket`);
+    } else {
+      newState = resolveCandyBucket(newState, tile, player.id, false);
+      newState = appendToTurnLog(newState, `${player.name} Shortcut to ${location} and collected candy from bucket`);
+    }
+    candyCollected = newState.players[state.currentPlayerIndex].roundCandy - candyBefore;
+  } else if (card.type === 'Item' || card.type === 'CandyItem') {
+    if (tile.itemCollected) {
+      newState = appendToTurnLog(newState, `${player.name} Shortcut to ${location} (empty gift house)`);
+    } else {
+      const { state: itemState, itemType, itemTypeRaw } = resolveItemTile(newState, player.id);
+      newState = itemState;
+      newState = appendToTurnLog(
+        newState,
+        isFlip ? `${player.name} Shortcut to ${location} and flipped ${itemType}` : `${player.name} Shortcut to ${location} and drew ${itemType}`
+      );
+      if (isFlip) {
+        (newState as GameState & { _itemType?: string; _itemTypeRaw?: string })._itemType = itemType;
+        (newState as GameState & { _itemType?: string; _itemTypeRaw?: string })._itemTypeRaw = itemTypeRaw;
+      }
+      newState = {
+        ...newState,
+        board: newState.board.map((r, ri) =>
+          r.map((t, ci) => (ri === row && ci === col ? { ...t, itemCollected: true } : t))
+        ),
+      };
+    }
+  } else if (card.type === 'Monster') {
+    const monsterName = card.monsterType ?? 'Monster';
+    newState = appendToTurnLog(
+      newState,
+      isFlip ? `${player.name} Shortcut to ${location} and flipped ${monsterName}` : `${player.name} Shortcut to ${location} and triggered ${monsterName}`
+    );
+    const hasFlashlight = player.itemCards.some((c) => c.type === 'Flashlight');
+    return {
+      ...newState,
+      monsterEncountered: { row, col },
+      message: hasFlashlight
+        ? `${player.name} encountered ${monsterName}! Use Flashlight to scare away monster, or Face Monster empty handed.`
+        : `${player.name} encountered ${monsterName}! Face Monster empty handed.`,
+    };
+  } else if (card.type === 'KingSizeBar') {
+    if (tile.itemCollected) {
+      newState = appendToTurnLog(newState, `${player.name} Shortcut to ${location} (King Size Bar already claimed)`);
+    } else {
+      const { state: ksState } = resolveKingSizeBar(newState, player.id);
+      newState = ksState;
+      newState = {
+        ...newState,
+        board: newState.board.map((r, ri) =>
+          r.map((t, ci) => (ri === row && ci === col ? { ...t, itemCollected: true } : t))
+        ),
+      };
+      newState = appendToTurnLog(newState, `${player.name} Shortcut to ${location} and found King Size Bar`);
+    }
+  } else if (card.type === 'OldManJohnson') {
+    newState = appendToTurnLog(newState, `${player.name} Shortcut to ${location} and flipped Old Man Johnson`);
+    return resolveOldManJohnson(newState);
+  }
+
+  const players = newState.players;
+  const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(newState, state.currentPlayerIndex, players);
+
+  const revealedItemType = (newState as GameState & { _itemType?: string })._itemType;
+  const revealedItemTypeRaw = (newState as GameState & { _itemTypeRaw?: string })._itemTypeRaw;
+  const { _itemType: _u1, _itemTypeRaw: _u2, ...cleanState } = newState as GameState & { _itemType?: string; _itemTypeRaw?: string };
+
+  let finalState: GameState = {
+    ...cleanState,
+    players: updatedPlayers,
+    currentPlayerIndex: nextIdx,
+    message: `${updatedPlayers[nextIdx].name}'s turn.`,
+  };
+  if (fromPos) {
+    finalState = { ...finalState, lastMoveForAnimation: { from: { row: fromPos.row, col: fromPos.column }, to: { row, col }, playerIndex: state.currentPlayerIndex } };
+  }
+  if ((card.type === 'Item' || card.type === 'CandyItem') && isFlip && revealedItemType && revealedItemTypeRaw) {
+    finalState = { ...finalState, lastRevealedItem: { row, col, itemType: revealedItemTypeRaw, playerIndex: state.currentPlayerIndex } };
+  }
+  if (candyCollected > 0) {
+    finalState = { ...finalState, lastRevealedCandy: { row, col, playerIndex: state.currentPlayerIndex, amount: candyCollected } };
+  }
+
+  return finalState;
+}
+
 // --- Item plays ---
 
 export function playItem(
@@ -1006,8 +1159,8 @@ export function playItem(
       if (target?.row !== undefined && target?.col !== undefined) {
         const tile = newState.board[target.row]?.[target.col];
         const isMansionRow = target.row === 4;
-        if (tile && !isMansionRow) {
-          newState = appendToTurnLog(newState, `${player.name} used Shortcut to ${formatTileLocation(target.row, target.col)}`);
+        if (tile && !tile.isClosed && !isMansionRow) {
+          const from = player.pawnPosition;
           newState = {
             ...newState,
             players: newState.players.map((p, i) =>
@@ -1016,7 +1169,6 @@ export function playItem(
             selectedAction: null,
             message: `${player.name} used Shortcut!`,
           };
-          const from = player.pawnPosition;
           if (from) {
             newState = updateTileOccupancy(
               newState,
@@ -1025,6 +1177,7 @@ export function playItem(
               player.id
             );
           }
+          newState = resolveShortcutLanding(newState, target.row, target.col, from);
         }
       }
       break;
@@ -1046,7 +1199,7 @@ export function playItem(
             board: newState.board.map((r, ri) =>
               r.map((t, ci) =>
                 ri === target.row && ci === target.col
-                  ? { ...t, candyTokensOnTile: 0, isClosed: true }
+                  ? { ...t, candyTokensOnTile: 0 }
                   : t
               )
             ),
@@ -1271,7 +1424,7 @@ export function resolveFlashlightReveal(state: GameState): GameState {
     newState = resolveCandyBucket(newState, flippedTile, player.id, true);
     newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — Candy Bucket revealed and collected.`);
     const candyCollected = newState.players[playerIdx].roundCandy - player.roundCandy;
-    newState = makeSpent(newState, { isClosed: true });
+    newState = makeSpent(newState);
     if (candyCollected > 0) {
       newState = {
         ...newState,

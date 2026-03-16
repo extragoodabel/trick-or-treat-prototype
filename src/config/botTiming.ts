@@ -114,3 +114,26 @@ export function saveBotProfile(profile: BotProfile): void {
     // ignore
   }
 }
+
+// --- Tooltips (desktop: hover info bubbles) ---
+
+const TOOLTIPS_KEY = 'trick-or-treat-tooltips-enabled';
+
+export function loadTooltipsEnabled(): boolean {
+  try {
+    const stored = localStorage.getItem(TOOLTIPS_KEY);
+    if (stored === 'false') return false;
+    if (stored === 'true') return true;
+  } catch {
+    // ignore
+  }
+  return true;
+}
+
+export function saveTooltipsEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(TOOLTIPS_KEY, String(enabled));
+  } catch {
+    // ignore
+  }
+}
