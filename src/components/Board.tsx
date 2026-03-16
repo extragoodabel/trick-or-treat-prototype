@@ -25,7 +25,7 @@ export function Board({ state, onTileClick, devRevealAll, playerColors = PLAYER_
   const isMove = selectedAction === 'move';
   const isChooseStart = state.gamePhase === 'chooseStartingPosition';
   const currentPlayer = state.players[state.currentPlayerIndex];
-  const pawnPos = currentPlayer?.pawnPosition ?? null;
+  const pawnPos = currentPlayer && !currentPlayer.isHome ? currentPlayer.pawnPosition ?? null : null;
 
   const currentPlayerColor = playerColors[state.currentPlayerIndex] || '#fff';
   const lastMove = state.lastMoveForAnimation;
@@ -97,7 +97,10 @@ export function Board({ state, onTileClick, devRevealAll, playerColors = PLAYER_
           const tileKey = `${r},${c}`;
           const occupancyOrder = state.tileOccupancyOrder?.[tileKey];
           const playersOnTileRaw: { player: Player; colorIndex: number }[] = state.players
-            .map((p, i) => (p.pawnPosition?.row === r && p.pawnPosition?.column === c ? { player: p, colorIndex: i } : null))
+            .map((p, i) => {
+              if (p.isHome) return null;
+              return p.pawnPosition?.row === r && p.pawnPosition?.column === c ? { player: p, colorIndex: i } : null;
+            })
             .filter((x): x is { player: Player; colorIndex: number } => x !== null);
           const playersOnTile = occupancyOrder?.length
             ? [...occupancyOrder]

@@ -80,9 +80,32 @@ export const BOT_PROFILES: Record<BotProfile, Partial<BotWeights>> = {
   },
 };
 
-function getWeights(profile: BotProfile): BotWeights {
+function hashPlayerId(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h << 5) - h + id.charCodeAt(i);
+  return Math.abs(h);
+}
+
+/** Per-bot weight modifiers for strategic diversity (cautious vs aggressive vs balanced) */
+function getPerBotModifier(playerId: string): { bank: number; risk: number } {
+  const h = hashPlayerId(playerId);
+  const bank = 0.85 + (h % 31) / 100; // 0.85–1.15
+  const risk = 0.9 + ((h >> 5) % 21) / 100; // 0.9–1.1
+  return { bank, risk };
+}
+
+function getWeights(profile: BotProfile, playerId?: string): BotWeights {
   const overrides = BOT_PROFILES[profile] ?? {};
-  return { ...DEFAULT_WEIGHTS, ...overrides };
+  let w = { ...DEFAULT_WEIGHTS, ...overrides };
+  if (playerId) {
+    const mod = getPerBotModifier(playerId);
+    w = {
+      ...w,
+      bankWhenAheadWeight: w.bankWhenAheadWeight * mod.bank,
+      riskWhenBehindWeight: w.riskWhenBehindWeight * mod.risk,
+    };
+  }
+  return w;
 }
 
 // --- Game phase (early / mid / late round) ---
@@ -118,6 +141,8 @@ export function getStanding(state: GameState, player: Player): Standing {
 
 export type StrategicMode = 'Explore' | 'PushMansion' | 'GoHome';
 
+export type EnderRisk = 'low' | 'medium' | 'high';
+
 export interface BotContext {
   state: GameState;
   player: Player;
@@ -127,10 +152,12 @@ export interface BotContext {
   roundPhase: RoundPhase;
   standing: Standing;
   strategicMode: StrategicMode;
+  enderRisk: EnderRisk;
+  enderRiskReason: string | null;
+  /** True when others are focused on candy (rows 0-2) and nobody is near Mansion - early push opportunity */
+  mansionOpportunity: boolean;
   weights: BotWeights;
-  /** Count of unflipped tiles (excluding closed) */
   unflippedCount: number;
-  /** Count of productive tiles (buckets with candy, unclaimed items, etc.) */
   productiveTileCount: number;
 }
 
@@ -140,10 +167,31 @@ function getStrategicMode(
   roundPhase: RoundPhase,
   standing: Standing,
   productiveTileCount: number,
-  prevMode: StrategicMode | null
+  prevMode: StrategicMode | null,
+  enderRisk: EnderRisk,
+  mansionOpportunity: boolean,
+  profile: BotProfile
 ): StrategicMode {
   const roundCandy = player.roundCandy ?? 0;
   const pos = player.pawnPosition;
+  const meaningfulCandy = roundCandy >= 5;
+
+  // Ender risk: protect candy when round-ending trigger is likely
+  if (enderRisk === 'high' && meaningfulCandy && standing !== 'behind') return 'GoHome';
+  if (enderRisk === 'high' && roundCandy >= 3 && standing === 'ahead') return 'GoHome';
+  if (enderRisk === 'high' && meaningfulCandy) return 'GoHome';
+
+  // Ender risk high + behind: may push Mansion for comeback
+  if (enderRisk === 'high' && standing === 'behind' && pos && pos.row >= 2) return 'PushMansion';
+
+  // Early Mansion opportunity: others focused on candy, nobody near Mansion - aggressive/comeback bots push
+  if (
+    mansionOpportunity &&
+    roundPhase === 'early' &&
+    (profile === 'aggressive' || profile === 'comeback') &&
+    roundCandy < 6 &&
+    pos && pos.row >= 1
+  ) return 'PushMansion';
 
   if (roundPhase === 'late' && roundCandy >= 5) return 'GoHome';
   if (roundPhase === 'late' && standing === 'ahead' && roundCandy >= 3) return 'GoHome';
@@ -177,7 +225,16 @@ function buildContext(
   const roundPhase = getRoundPhase(state);
   const standing = getStanding(state, player);
   const prevMode = pathHistory?.moves?.length ? inferModeFromPath(pathHistory) : null;
-  const strategicMode = getStrategicMode(state, player, roundPhase, standing, productive, prevMode);
+  const { risk: enderRisk, reason: enderRiskReason } = estimateEnderRisk(state, player.id, roundPhase);
+
+  const others = state.players.filter((p) => !p.isHome && p.id !== player.id);
+  const othersInCandyZone = others.filter((p) => p.pawnPosition && p.pawnPosition.row <= 2).length;
+  const othersNearMansion = others.filter((p) => p.pawnPosition && p.pawnPosition.row >= 3).length;
+  const mansionOpportunity = othersInCandyZone >= 2 && othersNearMansion === 0;
+
+  const strategicMode = getStrategicMode(
+    state, player, roundPhase, standing, productive, prevMode, enderRisk, mansionOpportunity, profile
+  );
 
   return {
     state,
@@ -188,7 +245,10 @@ function buildContext(
     roundPhase,
     standing,
     strategicMode,
-    weights: getWeights(profile),
+    enderRisk,
+    enderRiskReason,
+    mansionOpportunity,
+    weights: getWeights(profile, player.id),
     unflippedCount: unflipped,
     productiveTileCount: productive,
   };
@@ -203,20 +263,66 @@ function inferModeFromPath(ph: BotPathHistory): StrategicMode | null {
   return 'Explore';
 }
 
+// --- Ender risk: probability Old Man Johnson may be flipped soon ---
+
+const MANSION_ROW = 4;
+
+function estimateEnderRisk(
+  state: GameState,
+  currentPlayerId: string,
+  roundPhase: RoundPhase
+): { risk: EnderRisk; reason: string | null } {
+  const others = state.players.filter((p) => !p.isHome && p.id !== currentPlayerId);
+  let score = 0;
+  let reason: string | null = null;
+
+  const playersInMansion = others.filter((p) => p.pawnPosition?.row === MANSION_ROW);
+  const playersNearMansion = others.filter((p) => p.pawnPosition && p.pawnPosition.row === 3);
+
+  if (playersInMansion.length > 0) {
+    score += 40;
+    reason = `${playersInMansion[0].name} in Mansion Row`;
+  }
+  if (playersNearMansion.length > 0) {
+    score += 20;
+    if (!reason) reason = `${playersNearMansion[0].name} approaching Mansion Row`;
+  }
+  if (others.some((p) => p.pawnPosition && p.pawnPosition.row >= 2)) {
+    score += 10;
+  }
+
+  let mansionUnrevealed = 0;
+  for (let c = 0; c < 5; c++) {
+    const t = state.board[MANSION_ROW]?.[c];
+    if (t && !t.isClosed && !t.isFlipped) mansionUnrevealed++;
+  }
+  if (mansionUnrevealed <= 2) score += 25;
+  else if (mansionUnrevealed <= 3) score += 15;
+
+  if (roundPhase === 'late') score += 20;
+  else if (roundPhase === 'mid') score += 5;
+
+  if (roundPhase === 'early' && score < 20) score = Math.max(0, score - 15);
+
+  if (score >= 50) return { risk: 'high', reason };
+  if (score >= 25) return { risk: 'medium', reason };
+  return { risk: 'low', reason: null };
+}
+
 // --- Monster risk scores (negative = bad). Monsters are obstacles; avoid unless justified. ---
 
 const MONSTER_RISK: Record<string, number> = {
-  Ghost: -3,
-  Zombie: -6,
-  Witch: -2,
-  Skeleton: -1,
-  Werewolf: -4, // Direction reversal causes loops - strong penalty
-  Goblin: -3,
-  Vampire: -2.5,
+  Ghost: -12,   // Loses candy - strong avoid
+  Zombie: -18,  // Skips turn or loses candy - very strong avoid
+  Witch: -8,    // Swap hands - no gain, can cause loops
+  Skeleton: -10, // Reveal hand - zero gain, causes loops
+  Werewolf: -10, // Direction reversal causes loops
+  Goblin: -6,
+  Vampire: -5,
 };
 
 function getMonsterRisk(card: { monsterType?: string }): number {
-  return MONSTER_RISK[card.monsterType ?? ''] ?? -2;
+  return MONSTER_RISK[card.monsterType ?? ''] ?? -6;
 }
 
 // --- Loop detection ---
@@ -251,7 +357,21 @@ function getLoopPenalty(ctx: BotContext, targetRow: number, targetCol: number): 
     const visitedThisMonster = ph.some(
       (m) => m.to.row === targetRow && m.to.col === targetCol
     );
-    if (visitedThisMonster) penalty -= 20;
+    if (visitedThisMonster) penalty -= 25;
+    // Skeleton/Witch: zero benefit, cause loops - extra penalty for revisiting
+    const mt = tile.card.monsterType ?? '';
+    if ((mt === 'Skeleton' || mt === 'Witch') && visitedThisMonster) penalty -= 15;
+    // Detect Skeleton↔Witch ping-pong: if we visited the other recently, avoid
+    const visitedSkeleton = ph.some((m) => {
+      const t = ctx.state.board[m.to.row]?.[m.to.col];
+      return t?.card?.type === 'Monster' && t.card.monsterType === 'Skeleton';
+    });
+    const visitedWitch = ph.some((m) => {
+      const t = ctx.state.board[m.to.row]?.[m.to.col];
+      return t?.card?.type === 'Monster' && t.card.monsterType === 'Witch';
+    });
+    if (mt === 'Witch' && visitedSkeleton) penalty -= 12;
+    if (mt === 'Skeleton' && visitedWitch) penalty -= 12;
   }
 
   return penalty;
@@ -314,7 +434,7 @@ export type ScoredAction = ScoredMove | ScoredGoHome | ScoredItemPlay;
 // --- Move scoring ---
 
 function scoreMove(ctx: BotContext, targetRow: number, targetCol: number): number {
-  const { state, player, lastMoveFrom, roundPhase, standing, weights, strategicMode } = ctx;
+  const { state, player, lastMoveFrom, roundPhase, standing, weights, strategicMode, enderRisk, mansionOpportunity } = ctx;
   const tile = state.board[targetRow]?.[targetCol];
   if (!tile || tile.isClosed) return -100;
 
@@ -339,7 +459,9 @@ function scoreMove(ctx: BotContext, targetRow: number, targetCol: number): numbe
   const progressMansion = pos ? getProgressTowardMansion(targetRow) - getProgressTowardMansion(pos.row) : 0;
 
   if (!productive && tile.card?.type === 'Monster') {
-    score -= 8;
+    score -= 12;
+    const mt = tile.card.monsterType ?? '';
+    if (mt === 'Zombie' || mt === 'Ghost') score -= 15; // Strong avoid: no benefit, high cost
   }
   if (!productive && progressHome < 0 && progressMansion < 0) {
     score -= 10;
@@ -347,7 +469,16 @@ function scoreMove(ctx: BotContext, targetRow: number, targetCol: number): numbe
   if (strategicMode === 'GoHome' && progressHome < 0) score -= 8;
   if (strategicMode === 'PushMansion' && progressMansion < 0) score -= 8;
   if (strategicMode === 'GoHome' && progressHome > 0) score += 5;
-  if (strategicMode === 'PushMansion' && progressMansion > 0) score += 5;
+  if (strategicMode === 'PushMansion' && progressMansion > 0) {
+    score += 5;
+    if (mansionOpportunity) score += 4; // Others focused on candy - seize mansion
+  }
+
+  // Ender risk: avoid exploration toward mansion when holding value
+  if (enderRisk === 'high' && (player.roundCandy ?? 0) >= 5 && standing !== 'behind') {
+    if (progressMansion > 0) score -= 6;
+    if (progressHome > 0) score += 4;
+  }
 
   if (isSameTile && !tile.isFlipped) {
     return 12 * weights.explorationWeight + score;
@@ -381,7 +512,7 @@ function scoreMove(ctx: BotContext, targetRow: number, targetCol: number): numbe
 
     // Unknown: expected value
     const baseExplore = 10;
-    const mansionPenalty = targetRow >= 4 ? 4 : 0;
+    const mansionPenalty = targetRow >= 4 ? (mansionOpportunity && strategicMode === 'PushMansion' ? 0 : 4) : 0;
     const dist = pos
       ? Math.abs(pos.row - targetRow) + Math.abs(pos.column - targetCol)
       : 0;
@@ -448,7 +579,7 @@ function getPositionBonus(row: number): number {
 // --- Go Home scoring ---
 
 function scoreGoHome(ctx: BotContext): number {
-  const { player, roundPhase, standing, weights, productiveTileCount, strategicMode } = ctx;
+  const { player, roundPhase, standing, weights, productiveTileCount, strategicMode, enderRisk } = ctx;
   const roundCandy = player.roundCandy ?? 0;
 
   let score = 0;
@@ -467,6 +598,11 @@ function scoreGoHome(ctx: BotContext): number {
   if (roundCandy <= 2) score -= 2;
 
   if (strategicMode === 'GoHome') score += 4;
+
+  // Ender risk: strongly prefer banking when round could end soon and bot has value
+  if (enderRisk === 'high' && roundCandy >= 5) score += 12;
+  if (enderRisk === 'high' && roundCandy >= 3 && standing !== 'behind') score += 8;
+  if (enderRisk === 'medium' && roundCandy >= 5) score += 4;
 
   return score;
 }
@@ -708,8 +844,15 @@ function scoreBinocularsPlay(ctx: BotContext, targets: { row: number; col: numbe
 // --- Action selection ---
 
 function getStrategicGoHomeMessage(ctx: BotContext): string {
-  const { player, strategicMode, roundPhase, productiveTileCount } = ctx;
+  const { player, strategicMode, roundPhase, productiveTileCount, enderRisk, enderRiskReason } = ctx;
   const candy = player.roundCandy ?? 0;
+
+  if (enderRisk === 'high' && enderRiskReason && candy >= 3) {
+    return `${player.name} went home to protect candy after ${enderRiskReason}`;
+  }
+  if (enderRisk === 'high' && candy >= 5) {
+    return `${player.name} went home to protect ${candy} candy (high ender risk)`;
+  }
   if (strategicMode === 'GoHome' && candy >= 5) {
     return `${player.name} went home to bank ${candy} candy (securing lead)`;
   }
@@ -735,7 +878,13 @@ function getStrategicMoveMessage(
     return `${player.name} moved toward home via ${loc}`;
   }
   if (strategicMode === 'PushMansion' && !isMonster) {
+    const { standing, mansionOpportunity } = ctx;
+    if (standing === 'behind') return `${player.name} pushed Mansion Row because it is behind`;
+    if (mansionOpportunity) return `${player.name} pushed Mansion Row early (others focused on candy)`;
     return `${player.name} pushed toward Mansion Row via ${loc}`;
+  }
+  if (ctx.enderRisk === 'high' && !isMonster && row < (ctx.player.pawnPosition?.row ?? 5)) {
+    return `${player.name} moved toward home (increased caution due to high ender risk)`;
   }
   if (isMonster) {
     return `${player.name} moved to ${loc} (${tile.card?.monsterType ?? 'Monster'})`;
@@ -770,16 +919,35 @@ export function selectBestAction(
   }
 
   const bestMove = moves.reduce((a, b) => (a.score >= b.score ? a : b), moves[0]);
+  const bestMoveTile = bestMove ? state.board[bestMove.row]?.[bestMove.col] : null;
+  const bestMoveIsHarmfulMonster =
+    bestMoveTile?.card?.type === 'Monster' &&
+    (bestMoveTile.card.monsterType === 'Zombie' || bestMoveTile.card.monsterType === 'Ghost');
 
   const allMovesBad = !bestMove || bestMove.score <= 0;
   const goHomeBetter = goHomeScore > (bestMove?.score ?? -10) && goHomeScore >= 5;
+  const avoidHarmfulMonster =
+    bestMoveIsHarmfulMonster &&
+    (player.roundCandy ?? 0) >= 1 &&
+    goHomeScore >= 2;
   const lateRoundBias =
     ctx.roundPhase === 'late' &&
     (player.roundCandy ?? 0) >= 3 &&
     (bestMove?.score ?? 0) < 6 &&
     goHomeScore >= 3;
+  const enderRiskBias =
+    ctx.enderRisk === 'high' &&
+    (player.roundCandy ?? 0) >= 5 &&
+    ctx.standing !== 'behind' &&
+    goHomeScore >= 3;
+  const enderRiskBiasModerate =
+    ctx.enderRisk === 'high' &&
+    (player.roundCandy ?? 0) >= 3 &&
+    ctx.standing === 'ahead' &&
+    (bestMove?.score ?? 0) < 5 &&
+    goHomeScore >= 3;
 
-  if (allMovesBad || goHomeBetter || lateRoundBias) {
+  if (allMovesBad || goHomeBetter || lateRoundBias || enderRiskBias || enderRiskBiasModerate || avoidHarmfulMonster) {
     return {
       type: 'goHome',
       logMessage: getStrategicGoHomeMessage(ctx),

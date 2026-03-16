@@ -19,6 +19,15 @@ import { isAdjacent } from '../game/movement';
 import { selectBestAction } from './botEvaluation';
 import type { BotProfile } from './botEvaluation';
 
+const BOT_PROFILES: BotProfile[] = ['greedy', 'cautious', 'aggressive', 'comeback'];
+
+/** Assign deterministic profile per bot for strategic diversity (cautious, aggressive, etc.). */
+function getProfileForBot(playerId: string): BotProfile {
+  let h = 0;
+  for (let i = 0; i < playerId.length; i++) h = (h << 5) - h + playerId.charCodeAt(i);
+  return BOT_PROFILES[Math.abs(h) % BOT_PROFILES.length];
+}
+
 export type BotActionType = 'move' | 'goHome' | 'playItem' | 'discardItem' | 'resolveMonsterEncounter';
 
 export interface BotAction {
@@ -169,7 +178,8 @@ export function getBotAction(
   }
 
   if (options?.useSmartBots) {
-    return selectBestAction(state, player, validHistory, options.profile ?? 'greedy', pathHistory);
+    const profile = getProfileForBot(player.id);
+    return selectBestAction(state, player, validHistory, profile, pathHistory);
   }
 
   return getBotActionSimple(state, player, validHistory);
