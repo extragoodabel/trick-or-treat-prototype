@@ -2,8 +2,8 @@ import type { GameState, Player } from '../game/types';
 import type { ItemCard } from '../game/types';
 import { TileComponent } from './Tile';
 import { FlashlightBeamOverlay } from './FlashlightBeamOverlay';
-import { STREET_COL_LABELS, STREET_ROW_LABELS, HOUSE_ON_HILL_LABEL } from '../game/boardLabels';
-import { isOrthogonallyAdjacent } from '../game/movement';
+import { STREET_COL_LABELS, STREET_ROW_LABELS } from '../game/boardLabels';
+import { isAdjacent } from '../game/movement';
 import { getCostumeIcon } from '../game/icons';
 
 const PLAYER_COLORS = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12'];
@@ -13,7 +13,7 @@ interface BoardProps {
   onTileClick: (row: number, col: number) => void;
   devRevealAll?: boolean;
   playerColors?: string[];
-  /** When set, tiles are selectable for item targeting (Flashlight, Shortcut, Naughty Kid) */
+  /** When set, tiles are selectable for item targeting (Flashlight, Shortcut, Intrusive Thoughts, Binoculars) */
   pendingItem?: ItemCard | null;
 }
 
@@ -26,35 +26,36 @@ export function Board({ state, onTileClick, devRevealAll, playerColors = PLAYER_
 
   const currentPlayerColor = playerColors[state.currentPlayerIndex] || '#fff';
   const lastMove = state.lastMoveForAnimation;
-  const hasHouseOnHill = state.board.length === 6;
   const rowCount = state.board.length;
 
   const isItemTargeting = !!pendingItem;
   const getTileState = (row: number, col: number) => {
     const tile = state.board[row]?.[col];
     if (!tile) return { selectable: false, isCurrentPlayerTile: false, isItemTarget: false };
-    const occupied = state.players.some(
-      (p) => p.pawnPosition?.row === row && p.pawnPosition?.column === col
-    );
     const isFirstRow = row === 0;
     const isCurrentPlayerTile = pawnPos !== null && pawnPos.row === row && pawnPos.column === col;
-    const isAdjacent = pawnPos === null || isOrthogonallyAdjacent(pawnPos.row, pawnPos.column, row, col);
-    const selectableForMove = isMove && !tile.isClosed && (isAdjacent || isCurrentPlayerTile);
-    const selectableForStart = isChooseStart && isFirstRow && !occupied;
-    const selectableForItem = isItemTargeting && !tile.isClosed;
+    const isAdjacentTile = pawnPos === null || isAdjacent(pawnPos.row, pawnPos.column, row, col);
+    const selectableForMove = isMove && !tile.isClosed && (isAdjacentTile || isCurrentPlayerTile);
+    const selectableForStart = isChooseStart && isFirstRow;
+    const isMansionRow = row === 4;
+    const selectableForShortcut = pendingItem?.type === 'Shortcut' ? !isMansionRow : true;
+    const selectableForIntrusiveThoughts =
+      pendingItem?.type === 'IntrusiveThoughts'
+        ? isCurrentPlayerTile && tile.card?.type === 'CandyBucket' && tile.isFlipped && !tile.isClosed && tile.candyTokensOnTile > 0
+        : true;
+    const selectableForBinoculars = pendingItem?.type === 'Binoculars' ? !tile.isFlipped : true;
+    const selectableForItem = isItemTargeting && !tile.isClosed && selectableForShortcut && selectableForIntrusiveThoughts && selectableForBinoculars;
     const selectable =
-      selectableForMove || selectableForStart || selectableForItem;
+      selectableForMove || selectableForStart || (selectableForItem && selectableForShortcut);
     const isItemTarget = isItemTargeting && selectableForItem;
     return { selectable, isCurrentPlayerTile, isItemTarget };
   };
 
-  const rowLabels = hasHouseOnHill
-    ? [...STREET_ROW_LABELS, HOUSE_ON_HILL_LABEL]
-    : [...STREET_ROW_LABELS];
+  const rowLabels = [...STREET_ROW_LABELS];
 
   return (
     <div
-      className={`board ${hasHouseOnHill ? 'board--with-hill' : ''} ${lastMove && lastMove.to.row === 4 ? 'board--mansion-entry' : ''}`}
+      className={`board ${lastMove && lastMove.to.row === 4 ? 'board--mansion-entry' : ''}`}
       style={{ gridTemplateRows: `auto repeat(${rowCount}, minmax(0, 1fr))` }}
     >
       {/* Empty corner: row 1, col 1 */}
@@ -71,7 +72,7 @@ export function Board({ state, onTileClick, devRevealAll, playerColors = PLAYER_
       {rowLabels.map((label, i) => (
         <div
           key={`row-${i}`}
-          className={`board-row-label ${i === 0 ? 'start' : ''} ${i === 4 ? 'mansion' : ''} ${i === 5 ? 'hill' : ''}`}
+          className={`board-row-label ${i === 0 ? 'start' : ''} ${i === 4 ? 'mansion' : ''}`}
           style={{ gridRow: i + 2, gridColumn: 1 }}
         >
           {label}
@@ -94,7 +95,6 @@ export function Board({ state, onTileClick, devRevealAll, playerColors = PLAYER_
             : playersOnTileRaw;
           const isMansionRow = r === 4;
           const isFirstMansionTile = isMansionRow && c === 0;
-          const isHouseOnHill = r === 5 && tile.card?.type === 'HouseOnHill';
           const isAnimatingItemReveal =
             state.lastRevealedItem?.row === r && state.lastRevealedItem?.col === c;
           const isFlashlightTarget =
@@ -138,7 +138,6 @@ export function Board({ state, onTileClick, devRevealAll, playerColors = PLAYER_
                 devRevealAll={devRevealAll}
                 isMansionRow={isMansionRow}
                 isFirstMansionTile={isFirstMansionTile}
-                isHouseOnHill={isHouseOnHill}
                 isAnimatingItemReveal={isAnimatingItemReveal}
                 forceRevealed={forceRevealed}
                 isFlashlightBeamTarget={isBeamPhaseTarget}

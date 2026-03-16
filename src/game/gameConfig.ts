@@ -17,7 +17,7 @@ export const COLOR_NAMES = SETUP_COLORS.map((c) => c.name);
 export type GameConfig = {
   /** Number of neighborhoods (rounds) to play: 1–9 */
   totalRounds: number;
-  /** Player count (2–4) */
+  /** Player count (2–6) */
   playerCount: number;
   /** Costume per seat: "Random" or costume name */
   costumes: string[];

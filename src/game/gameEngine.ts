@@ -8,7 +8,7 @@ import {
 } from './cardDefinitions';
 import { setupNewNeighborhood, createInitialPlayers } from './setup';
 import { formatTileLocation } from './boardLabels';
-import { isOrthogonallyAdjacent } from './movement';
+import { isAdjacent } from './movement';
 
 // --- Game setup ---
 
@@ -20,6 +20,7 @@ export function createNewGame(config: GameConfig): GameState {
   const baseState: GameState = {
     players,
     currentPlayerIndex: 0,
+    playDirection: 1,
     board: [],
     houseDeck: [],
     mansionDeck: [],
@@ -66,7 +67,7 @@ export function appendToTurnLog(state: GameState, message: string): GameState {
   };
 }
 
-/** Select starting position (first row only). One player per tile. */
+/** Select starting position (first row only). Multiple players may choose same tile. Starting tile flips immediately and resolves. */
 export function selectStartingPosition(
   state: GameState,
   row: number,
@@ -76,12 +77,7 @@ export function selectStartingPosition(
   if (row !== 0) return state; // Must be first row
 
   const tile = state.board[row]?.[col];
-  if (!tile) return state;
-
-  const occupied = state.players.some(
-    (p) => p.pawnPosition?.row === row && p.pawnPosition?.column === col
-  );
-  if (occupied) return state;
+  if (!tile || tile.isClosed) return state;
 
   const player = state.players[state.currentPlayerIndex];
   const players = state.players.map((p, i) =>
@@ -89,6 +85,57 @@ export function selectStartingPosition(
   );
   let nextState: GameState = { ...state, players };
   nextState = updateTileOccupancy(nextState, null, { row, col }, player.id);
+
+  // Flip starting tile immediately and resolve
+  const card = tile.card;
+  if (card && !tile.isFlipped) {
+    nextState = {
+      ...nextState,
+      board: nextState.board.map((r, ri) =>
+        r.map((t, ci) =>
+          ri === row && ci === col ? { ...t, isFlipped: true } : t
+        )
+      ),
+    };
+    const flippedTile = { ...tile, isFlipped: true };
+    if (card.type === 'CandyBucket') {
+      nextState = resolveCandyBucket(nextState, flippedTile, player.id, true);
+    } else if (card.type === 'Item' || card.type === 'CandyItem') {
+      const { state: itemState, itemType } = resolveItemTile(nextState, player.id);
+      nextState = itemState;
+      nextState = {
+        ...nextState,
+        board: nextState.board.map((r, ri) =>
+          r.map((t, ci) =>
+            ri === row && ci === col ? { ...t, itemCollected: true } : t
+          )
+        ),
+      };
+      nextState = appendToTurnLog(nextState, `${player.name} flipped ${itemType} at ${formatTileLocation(row, col)}`);
+    } else if (card.type === 'Monster') {
+      nextState = resolveMonster(nextState, flippedTile, player.id);
+      nextState = appendToTurnLog(nextState, `${player.name} flipped ${card.monsterType ?? 'Monster'} at ${formatTileLocation(row, col)}`);
+      if (nextState.gamePhase === 'roundEnd') {
+        return nextState;
+      }
+    } else if (card.type === 'KingSizeBar') {
+      const { state: ksState } = resolveKingSizeBar(nextState, player.id);
+      nextState = ksState;
+      nextState = {
+        ...nextState,
+        board: nextState.board.map((r, ri) =>
+          r.map((t, ci) =>
+            ri === row && ci === col ? { ...t, itemCollected: true } : t
+          )
+        ),
+      };
+      nextState = appendToTurnLog(nextState, `${player.name} flipped King Size Bar at ${formatTileLocation(row, col)}`);
+    } else if (card.type === 'OldManJohnson') {
+      nextState = resolveOldManJohnson(nextState);
+      nextState = appendToTurnLog(nextState, `${player.name} flipped Old Man Johnson at ${formatTileLocation(row, col)}`);
+      return nextState;
+    }
+  }
 
   const nextIndex = state.currentPlayerIndex + 1;
   const allChosen = nextIndex >= players.length;
@@ -98,8 +145,8 @@ export function selectStartingPosition(
     currentPlayerIndex: allChosen ? 0 : nextIndex,
     gamePhase: allChosen ? 'playing' : 'chooseStartingPosition',
     message: allChosen
-      ? `${players[0].name}'s turn.`
-      : `${players[nextIndex].name}, choose your starting house (first row)`,
+      ? `${nextState.players[0].name}'s turn.`
+      : `${nextState.players[nextIndex].name}, choose your starting house (first row)`,
   };
 }
 
@@ -188,25 +235,31 @@ function resolveCandyBucket(
 }
 
 const ITEM_TYPE_LABELS: Record<string, string> = {
-  FullSizeBar: 'Full Size Bar',
   Flashlight: 'Flashlight',
+  Binoculars: 'Binoculars',
   Shortcut: 'Shortcut',
-  NaughtyKid: 'Naughty Kid',
+  IntrusiveThoughts: 'Intrusive Thoughts',
   Toothbrush: 'Toothbrush',
   Pennies: 'Pennies',
   RottenApple: 'Rotten Apple',
+  KingSizeBar: 'King Size Bar',
+  CandyItem: 'Candy Item',
 };
 
 function resolveItemTile(
   state: GameState,
-  playerId: string
+  playerId: string,
+  tileCardType?: 'Item' | 'CandyItem'
 ): { state: GameState; itemType: string; itemTypeRaw: string } {
   const players = [...state.players];
   const playerIdx = players.findIndex((p) => p.id === playerId);
   if (playerIdx === -1) return { state, itemType: 'Item', itemTypeRaw: 'Item' };
 
-  const itemTypeRaw = ITEM_DECK[Math.floor(Math.random() * ITEM_DECK.length)];
-  const newCard = createItemCard(itemTypeRaw);
+  const itemTypeRaw =
+    tileCardType === 'CandyItem'
+      ? 'CandyItem'
+      : (ITEM_DECK[Math.floor(Math.random() * ITEM_DECK.length)] as string);
+  const newCard = createItemCard(itemTypeRaw as import('./types').ItemCardType);
   players[playerIdx] = {
     ...players[playerIdx],
     itemCards: [...players[playerIdx].itemCards, newCard],
@@ -219,6 +272,34 @@ function resolveItemTile(
     },
     itemType: ITEM_TYPE_LABELS[itemTypeRaw] ?? itemTypeRaw,
     itemTypeRaw,
+  };
+}
+
+function resolveKingSizeBar(state: GameState, playerId: string): { state: GameState } {
+  const players = [...state.players];
+  const playerIdx = players.findIndex((p) => p.id === playerId);
+  if (playerIdx === -1) return { state };
+  const newCard = createItemCard('KingSizeBar');
+  players[playerIdx] = {
+    ...players[playerIdx],
+    itemCards: [...players[playerIdx].itemCards, newCard],
+  };
+  return {
+    state: { ...state, players, message: `${players[playerIdx].name} found a King Size Bar!` },
+  };
+}
+
+function resolveOldManJohnson(state: GameState): GameState {
+  const players = state.players.map((p) => {
+    if (p.isHome) return p;
+    return { ...p, roundCandy: 0 };
+  });
+  return {
+    ...state,
+    players,
+    gamePhase: 'roundEnd',
+    message: 'Old Man Johnson! All players still out lost their round candy.',
+    lastOldManJohnsonReveal: true,
   };
 }
 
@@ -271,11 +352,11 @@ function resolveMonster(
         roundCandy: Math.max(0, player.roundCandy - lost),
       };
       return withAffected(
-        { ...state, players, message: `${player.name} lost 3 candy to Ghost!` },
+        { ...state, players, message: `${player.name} lost 1 candy to Ghost!` },
         [player.id],
-        'lost 3 candy to Ghost',
+        'lost 1 candy to Ghost',
         {
-          lastConsequenceMessage: `${player.name} lost 3 candy to Ghost`,
+          lastConsequenceMessage: `${player.name} lost 1 candy to Ghost`,
           lastCandyDeltas: [{ playerIndex: playerIdx, delta: -lost }],
         }
       );
@@ -339,16 +420,11 @@ function resolveMonster(
     }
 
     case 'Werewolf': {
-      const lost = Math.floor(player.roundCandy / 2);
-      players[playerIdx] = { ...player, roundCandy: player.roundCandy - lost };
       return withAffected(
-        { ...state, players, message: `${player.name} lost half candy to Werewolf!` },
+        { ...state, players, playDirection: (state.playDirection ?? 1) * -1, message: `${player.name} reversed play direction (Werewolf)!` },
         [player.id],
-        `lost ${lost} candy to Werewolf`,
-        {
-          lastConsequenceMessage: `${player.name} lost ${lost} candy to Werewolf`,
-          lastCandyDeltas: lost > 0 ? [{ playerIndex: playerIdx, delta: -lost }] : undefined,
-        }
+        'reversed play direction (Werewolf)',
+        { lastConsequenceMessage: `${player.name} reversed play direction (Werewolf)` }
       );
     }
 
@@ -358,31 +434,31 @@ function resolveMonster(
         (a, b) => a.itemCards.length - b.itemCards.length
       );
       const fewest = sorted[0];
-      if (fewest && fewest.itemCards.length > 0) {
-        const fromIdx = players.findIndex((p) => p.id === fewest.id);
-        const takeIdx = Math.floor(Math.random() * fewest.itemCards.length);
-        const taken = fewest.itemCards[takeIdx];
-        const newFewest = fewest.itemCards.filter((_, i) => i !== takeIdx);
-        players[fromIdx] = { ...fewest, itemCards: newFewest };
-        players[playerIdx] = {
-          ...player,
-          itemCards: [...player.itemCards, taken],
+      if (fewest && player.itemCards.length > 0) {
+        const takeIdx = Math.floor(Math.random() * player.itemCards.length);
+        const taken = player.itemCards[takeIdx];
+        const newLanding = player.itemCards.filter((_, i) => i !== takeIdx);
+        players[playerIdx] = { ...player, itemCards: newLanding };
+        const fewestIdx = players.findIndex((p) => p.id === fewest.id);
+        players[fewestIdx] = {
+          ...fewest,
+          itemCards: [...fewest.itemCards, taken],
         };
         return withAffected(
-          { ...state, players, message: `${player.name} took a card from ${fewest.name} (Goblin)!` },
+          { ...state, players, message: `${fewest.name} took a card from ${player.name} (Goblin)!` },
           [fewest.id, player.id],
-          `${player.name} took card from ${fewest.name} (Goblin)`,
+          `${fewest.name} took card from ${player.name} (Goblin)`,
           {
-            lastConsequenceMessage: `${player.name} stole a card from ${fewest.name} (Goblin)`,
+            lastConsequenceMessage: `${fewest.name} took a card from ${player.name} (Goblin)`,
             lastGoblinTheft: {
-              fromPlayerIndex: fromIdx,
-              toPlayerIndex: playerIdx,
+              fromPlayerIndex: playerIdx,
+              toPlayerIndex: fewestIdx,
               itemType: taken.type,
             },
           }
         );
       }
-      return { ...state, players, message: `${player.name} triggered Goblin (no other players on board with items)!` };
+      return { ...state, players, message: `${player.name} triggered Goblin (no other players on board with cards, or you have no cards)!` };
     }
 
     case 'Vampire': {
@@ -420,37 +496,6 @@ function resolveMonster(
     default:
       return state;
   }
-}
-
-function resolveHouseOnHill(state: GameState, playerId: string): GameState {
-  const points = GAME_RULES.houseOnHillPoints;
-  const players = state.players.map((p) =>
-    p.id === playerId ? { ...p, bankedCandy: p.bankedCandy + points } : p
-  );
-  const player = players.find((p) => p.id === playerId)!;
-  return {
-    ...state,
-    players,
-    gamePhase: 'gameOver',
-    message: `${player.name} reached the House on the Hill and found the 10-point King Size prize! Game over.`,
-    lastConsequenceMessage: `${player.name} reached the House on the Hill and found the 10-point King Size prize!`,
-  };
-}
-
-function resolveEnder(state: GameState): GameState {
-  const players = state.players.map((p) => {
-    if (p.isHome) {
-      return { ...p, bankedCandy: p.bankedCandy + p.roundCandy, roundCandy: 0 };
-    }
-    return { ...p, roundCandy: 0 };
-  });
-  return {
-    ...state,
-    players,
-    gamePhase: 'roundEnd',
-    message: 'Ender! All players not home lost their candy.',
-    lastEnderReveal: true,
-  };
 }
 
 // --- Actions ---
@@ -494,16 +539,19 @@ export function goHome(state: GameState): GameState {
   if (player.skipNextTurn) return state;
 
   const players = [...state.players];
-  players[state.currentPlayerIndex] = { ...player, isHome: true };
-  const { nextIndex: nextIdx, updatedPlayers: updatedPlayers } = advanceToNextPlayer(state.currentPlayerIndex, players);
+  players[state.currentPlayerIndex] = {
+    ...player,
+    isHome: true,
+    bankedCandy: player.bankedCandy + player.roundCandy,
+    roundCandy: 0,
+  };
+  const { nextIndex: nextIdx, updatedPlayers: updatedPlayers } = advanceToNextPlayer(state, state.currentPlayerIndex, players);
   const withLog = appendToTurnLog(state, `${player.name} went home`);
   const allHome = updatedPlayers.every((p) => p.isHome);
   if (allHome) {
-    const bankedPlayers = updatedPlayers.map((p) => ({
-      ...p,
-      bankedCandy: p.bankedCandy + p.roundCandy,
-      roundCandy: 0,
-    }));
+    const bankedPlayers = updatedPlayers.map((p) =>
+      p.isHome ? p : { ...p, bankedCandy: p.bankedCandy + p.roundCandy, roundCandy: 0 }
+    );
     return {
       ...withLog,
       players: bankedPlayers,
@@ -523,6 +571,7 @@ export function goHome(state: GameState): GameState {
 }
 
 function advanceToNextPlayer(
+  state: GameState,
   current: number,
   players: Player[]
 ): { nextIndex: number; updatedPlayers: Player[] } {
@@ -533,16 +582,17 @@ function advanceToNextPlayer(
     return { nextIndex: soleActiveIdx, updatedPlayers: players };
   }
 
-  let next = (current + 1) % players.length;
+  const dir = state.playDirection ?? 1;
+  let next = (current + dir + players.length) % players.length;
   while (players[next].isHome) {
-    next = (next + 1) % players.length;
+    next = (next + dir + players.length) % players.length;
   }
 
   if (players[next].skipNextTurn) {
     const updated = players.map((p, i) =>
       i === next ? { ...p, skipNextTurn: false } : p
     );
-    const result = advanceToNextPlayer(next, updated);
+    const result = advanceToNextPlayer(state, next, updated);
     return result;
   }
   return { nextIndex: next, updatedPlayers: players };
@@ -568,13 +618,13 @@ export function move(state: GameState, row: number, col: number): GameState {
   if (pos === null) return state;
 
   const isSameTile = pos.row === row && pos.column === col;
-  const isAdjacent = isOrthogonallyAdjacent(pos.row, pos.column, row, col);
+  const isAdjacentTile = isAdjacent(pos.row, pos.column, row, col);
 
-  // Allow: adjacent move, OR flip of current tile (without moving) when face-down
-  if (!isAdjacent && !(isSameTile && !tile.isFlipped)) {
+  // Allow: adjacent move (including diagonals), OR flip of current tile (without moving) when face-down
+  if (!isAdjacentTile && !(isSameTile && !tile.isFlipped)) {
     return {
       ...state,
-      message: 'Movement must be to an adjacent house (up, down, left, or right).',
+      message: 'Movement must be to an adjacent house (including diagonals).',
     };
   }
 
@@ -625,12 +675,12 @@ export function move(state: GameState, row: number, col: number): GameState {
       newState = appendToTurnLog(newState, `${player.name} moved to ${location} and collected candy from bucket`);
     }
     candyCollected = newState.players[state.currentPlayerIndex].roundCandy - candyBefore;
-  } else if (card.type === 'Item') {
+  } else if (card.type === 'Item' || card.type === 'CandyItem') {
     const alreadyUsed = tile.itemCollected === true;
     if (alreadyUsed) {
       newState = appendToTurnLog(newState, `${player.name} moved to ${location} (empty gift house)`);
     } else {
-      const { state: itemState, itemType, itemTypeRaw } = resolveItemTile(newState, player.id);
+      const { state: itemState, itemType, itemTypeRaw } = resolveItemTile(newState, player.id, card.type);
       newState = itemState;
       newState = appendToTurnLog(
         newState,
@@ -663,21 +713,31 @@ export function move(state: GameState, row: number, col: number): GameState {
     if (newState.gamePhase === 'roundEnd') {
       return newState;
     }
-  } else if (card.type === 'Ender') {
-    newState = appendToTurnLog(newState, `${player.name} moved to ${location} and flipped Ender`);
-    newState = resolveEnder(newState);
-    return newState;
-  } else if (card.type === 'HouseOnHill') {
-    newState = appendToTurnLog(
-      newState,
-      `${player.name} reached the House on the Hill and found the 10-point King Size prize!`
-    );
-    newState = resolveHouseOnHill(newState, player.id);
+  } else if (card.type === 'KingSizeBar') {
+    const alreadyCollected = tile.itemCollected === true;
+    if (alreadyCollected) {
+      newState = appendToTurnLog(newState, `${player.name} moved to ${location} (King Size Bar already claimed)`);
+    } else {
+      const { state: ksState } = resolveKingSizeBar(newState, player.id);
+      newState = ksState;
+      newState = {
+        ...newState,
+        board: newState.board.map((r, ri) =>
+          r.map((t, ci) =>
+            ri === row && ci === col ? { ...t, itemCollected: true } : t
+          )
+        ),
+      };
+      newState = appendToTurnLog(newState, `${player.name} found King Size Bar at ${location}`);
+    }
+  } else if (card.type === 'OldManJohnson') {
+    newState = appendToTurnLog(newState, `${player.name} flipped Old Man Johnson at ${location}`);
+    newState = resolveOldManJohnson(newState);
     return newState;
   }
 
   const players = newState.players;
-  const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state.currentPlayerIndex, players);
+  const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(newState, state.currentPlayerIndex, players);
 
   const revealedItemType = (newState as GameState & { _itemType?: string })._itemType;
   const revealedItemTypeRaw = (newState as GameState & { _itemTypeRaw?: string })._itemTypeRaw;
@@ -693,7 +753,7 @@ export function move(state: GameState, row: number, col: number): GameState {
   if (!(isSameTile && isFlip)) {
     finalState = { ...finalState, lastMoveForAnimation: { from: { row: pos.row, col: pos.column }, to: { row, col }, playerIndex: state.currentPlayerIndex } };
   }
-  if (card.type === 'Item' && isFlip && revealedItemType && revealedItemTypeRaw) {
+  if ((card.type === 'Item' || card.type === 'CandyItem') && isFlip && revealedItemType && revealedItemTypeRaw) {
     finalState = { ...finalState, lastRevealedItem: { row, col, itemType: revealedItemTypeRaw, playerIndex: state.currentPlayerIndex } };
   }
   if (candyCollected > 0) {
@@ -731,7 +791,8 @@ export function playItem(
     case 'Shortcut':
       if (target?.row !== undefined && target?.col !== undefined) {
         const tile = newState.board[target.row]?.[target.col];
-        if (tile) {
+        const isMansionRow = target.row === 4;
+        if (tile && !isMansionRow) {
           newState = appendToTurnLog(newState, `${player.name} used Shortcut to ${formatTileLocation(target.row, target.col)}`);
           newState = {
             ...newState,
@@ -754,12 +815,12 @@ export function playItem(
       }
       break;
 
-    case 'NaughtyKid':
+    case 'IntrusiveThoughts':
       if (target?.row !== undefined && target?.col !== undefined) {
         const tile = newState.board[target.row]?.[target.col];
         if (tile?.card?.type === 'CandyBucket' && tile.isFlipped) {
-          newState = appendToTurnLog(newState, `${player.name} used Naughty Kid on ${formatTileLocation(target.row, target.col)}`);
-          const fromSupply = Math.min(GAME_RULES.naughtyKidBonusToken, newState.candySupply);
+          newState = appendToTurnLog(newState, `${player.name} used Intrusive Thoughts on ${formatTileLocation(target.row, target.col)}`);
+          const fromSupply = Math.min(GAME_RULES.intrusiveThoughtsBonusTokens, newState.candySupply);
           players[playerIdx] = {
             ...players[playerIdx],
             roundCandy: players[playerIdx].roundCandy + tile.candyTokensOnTile + fromSupply,
@@ -776,7 +837,22 @@ export function playItem(
               )
             ),
             selectedAction: null,
-            message: `${player.name} used Naughty Kid!`,
+            message: `${player.name} used Intrusive Thoughts!`,
+          };
+        }
+      }
+      break;
+
+    case 'Binoculars':
+      if (target?.row !== undefined && target?.col !== undefined) {
+        const tile = newState.board[target.row]?.[target.col];
+        if (tile && !tile.isFlipped) {
+          newState = appendToTurnLog(newState, `${player.name} used Binoculars to peek at ${formatTileLocation(target.row, target.col)}`);
+          newState = {
+            ...newState,
+            binocularsPeek: target.row !== undefined && target.col !== undefined ? [{ row: target.row, col: target.col }] : undefined,
+            selectedAction: null,
+            message: `${player.name} used Binoculars!`,
           };
         }
       }
@@ -794,12 +870,12 @@ export function playItem(
             revealMessage = `${monsterName} revealed and chased away.`;
           } else if (card.type === 'CandyBucket') {
             revealMessage = 'Candy Bucket revealed and collected.';
-          } else if (card.type === 'Item') {
+          } else if (card.type === 'Item' || card.type === 'CandyItem') {
             revealMessage = 'Item revealed and drawn.';
-          } else if (card.type === 'Ender') {
-            revealMessage = 'Ender revealed and triggered.';
-          } else if (card.type === 'HouseOnHill') {
-            revealMessage = 'House on the Hill revealed.';
+          } else if (card.type === 'KingSizeBar') {
+            revealMessage = 'King Size Bar revealed and collected.';
+          } else if (card.type === 'OldManJohnson') {
+            revealMessage = 'Old Man Johnson revealed and triggered.';
           } else {
             revealMessage = 'Revealed.';
           }
@@ -841,7 +917,7 @@ export function playItem(
     return newState;
   }
 
-  const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state.currentPlayerIndex, newState.players);
+  const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state, state.currentPlayerIndex, newState.players);
   return { ...newState, players: updatedPlayers, currentPlayerIndex: nextIdx };
 }
 
@@ -888,12 +964,12 @@ export function resolveFlashlightReveal(state: GameState): GameState {
         lastConsequenceMessage: `${player.name} found ${candyCollected} candy!`,
       };
     }
-  } else if (card.type === 'Item') {
+  } else if (card.type === 'Item' || card.type === 'CandyItem') {
     if (tile.itemCollected) {
       newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — empty gift house.`);
       newState = makeSpent(newState, { itemCollected: true });
     } else {
-      const { state: itemState, itemType, itemTypeRaw } = resolveItemTile(newState, player.id);
+      const { state: itemState, itemType, itemTypeRaw } = resolveItemTile(newState, player.id, card.type);
       newState = itemState;
       newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — ${itemType} revealed and drawn.`);
       newState = makeSpent(newState, { itemCollected: true });
@@ -928,19 +1004,26 @@ export function resolveFlashlightReveal(state: GameState): GameState {
         ),
       };
     }
-  } else if (card.type === 'Ender') {
-    newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — Ender revealed and triggered.`);
-    newState = resolveEnder(newState);
-    return clearFlashlightFromState(newState);
-  } else if (card.type === 'HouseOnHill') {
-    newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — House on the Hill revealed.`);
-    newState = resolveHouseOnHill(newState, player.id);
+  } else if (card.type === 'KingSizeBar') {
+    const alreadyCollected = tile.itemCollected === true;
+    if (alreadyCollected) {
+      newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — King Size Bar already claimed.`);
+      newState = makeSpent(newState, { itemCollected: true });
+    } else {
+      const { state: ksState } = resolveKingSizeBar(newState, player.id);
+      newState = ksState;
+      newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — King Size Bar revealed and collected.`);
+      newState = makeSpent(newState, { itemCollected: true });
+    }
+  } else if (card.type === 'OldManJohnson') {
+    newState = appendToTurnLog(newState, `${player.name} used Flashlight on ${location} — Old Man Johnson revealed and triggered.`);
+    newState = resolveOldManJohnson(newState);
     return clearFlashlightFromState(newState);
   } else {
     newState = makeSpent(newState);
   }
 
-  const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state.currentPlayerIndex, newState.players);
+  const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state, state.currentPlayerIndex, newState.players);
   return {
     ...clearFlashlightFromState(newState),
     players: updatedPlayers,
@@ -956,7 +1039,7 @@ function clearFlashlightFromState(s: GameState): GameState {
 
 function clearFlashlightAndAdvance(state: GameState): GameState {
   const cleared = clearFlashlightFromState(state);
-  const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state.currentPlayerIndex, cleared.players);
+  const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state, state.currentPlayerIndex, cleared.players);
   return {
     ...cleared,
     players: updatedPlayers,
@@ -971,7 +1054,7 @@ export function endTurn(state: GameState): GameState {
   const player = state.players[state.currentPlayerIndex];
   const withLog = appendToTurnLog(state, `${player.name} ended turn`);
   const players = [...withLog.players];
-  const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state.currentPlayerIndex, players);
+  const { nextIndex: nextIdx, updatedPlayers } = advanceToNextPlayer(state, state.currentPlayerIndex, players);
   return {
     ...withLog,
     players: updatedPlayers,
@@ -988,7 +1071,7 @@ export function startNextNeighborhood(state: GameState): GameState {
   const roundNumber = state.roundNumber + 1;
 
   if (roundNumber >= state.totalRounds) {
-    const { lastEnderReveal, ...rest } = state;
+    const { lastOldManJohnsonReveal, ...rest } = state;
     return {
       ...rest,
       roundNumber,
@@ -997,16 +1080,17 @@ export function startNextNeighborhood(state: GameState): GameState {
     };
   }
 
-  const resetPlayers = state.players.map((p) => ({
+  const bankedPlayers = state.players.map((p) => ({
     ...p,
+    bankedCandy: p.bankedCandy + p.roundCandy,
+    roundCandy: 0,
     pawnPosition: null,
     isHome: false,
     skipNextTurn: false,
     handRevealed: false,
   }));
-
-  const { lastEnderReveal, ...stateWithoutEnder } = state;
-  const baseState = { ...stateWithoutEnder, players: resetPlayers, roundNumber };
+  const { lastOldManJohnsonReveal, ...stateWithoutOMJ } = state;
+  const baseState = { ...stateWithoutOMJ, players: bankedPlayers, roundNumber };
   return setupNewNeighborhood(baseState);
 }
 

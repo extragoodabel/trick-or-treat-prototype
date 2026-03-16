@@ -1,5 +1,5 @@
 /**
- * Trick or Treat v0.5 - Game Rules
+ * Trick or Treat v0.9 - Game Rules
  * Centralize all rule constants here for easy iteration.
  */
 
@@ -9,27 +9,31 @@ export const GAME_RULES = {
   boardRows: 5,
   boardCols: 5,
   houseDeckRows: 4, // rows 1-4
-  mansionRow: 5, // row 5 (1-indexed)
-  mansionCardsCount: 4,
-  enderCardsCount: 1,
+  mansionRow: 4, // row 5 (0-indexed: row 4)
 
-  // House on the Hill (Neighborhood 3 only)
-  houseOnHillPoints: 10,
+  // Candy
+  startingCandyPerRound: 5,
+  initialCandySupply: 50,
 
   // Candy bucket
   candyBucketTokens: (numPlayers: number) => numPlayers - 1,
   candyBucketFlipperGets: 1,
 
-  // Starting candy supply (per round or total - adjust as needed)
-  initialCandySupply: 50,
-
   // Monster effects
-  ghostLoseTokens: 3,
-  werewolfLoseHalf: true,
+  ghostLoseTokens: 1,
 
-  // Item cards
-  fullSizeBarMinPoints: 3,
-  fullSizeBarMaxPoints: 5,
-  naughtyKidBonusToken: 1,
-  negativeItemPoints: -1,
+  // Intrusive Thoughts (was Naughty Kid)
+  intrusiveThoughtsBonusTokens: 4,
+
+  // Toothbrush
+  toothbrushOldManJohnsonPenalty: 3,
+
+  // Item scoring
+  kingSizeBarMinPoints: 5,
+  kingSizeBarMaxPoints: 7,
+  candyItemMinPoints: 2,
+  candyItemMaxPoints: 3,
+  penniesPoints: -1,
+  rottenApplePoints: -1,
+  toothbrushPoints: -3,
 } as const;

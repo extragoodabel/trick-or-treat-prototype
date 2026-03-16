@@ -11,7 +11,7 @@
 
 import type { GameState, Player, ItemCard } from '../game/types';
 import { formatTileLocation } from '../game/boardLabels';
-import { isOrthogonallyAdjacent } from '../game/movement';
+import { isAdjacent } from '../game/movement';
 
 export type BotActionType = 'move' | 'goHome' | 'playItem';
 
@@ -29,17 +29,13 @@ export interface BotMoveHistory {
   roundNumber: number;
 }
 
-/** Get a random available first-row tile for starting position. Returns null if none. */
+/** Get a random first-row tile for starting position. Multiple players may choose same tile. */
 export function getBotStartingPosition(state: GameState): { row: number; col: number } | null {
   if (state.gamePhase !== 'chooseStartingPosition') return null;
-  const occupied = new Set(
-    state.players
-      .filter((p) => p.pawnPosition !== null)
-      .map((p) => `${p.pawnPosition!.row},${p.pawnPosition!.column}`)
-  );
   const available: { row: number; col: number }[] = [];
   for (let c = 0; c < 5; c++) {
-    if (!occupied.has(`0,${c}`)) available.push({ row: 0, col: c });
+    const tile = state.board[0]?.[c];
+    if (tile && !tile.isClosed) available.push({ row: 0, col: c });
   }
   if (available.length === 0) return null;
   return available[Math.floor(Math.random() * available.length)];
@@ -61,9 +57,9 @@ function scoreMove(
 
   const pos = player.pawnPosition;
   const isSameTile = pos !== null && pos.row === targetRow && pos.column === targetCol;
-  const isAdjacent = pos === null || isOrthogonallyAdjacent(pos.row, pos.column, targetRow, targetCol);
+  const isAdjacentTile = pos === null || isAdjacent(pos.row, pos.column, targetRow, targetCol);
 
-  if (!isAdjacent && !(isSameTile && !tile.isFlipped)) {
+  if (!isAdjacentTile && !(isSameTile && !tile.isFlipped)) {
     return -10;
   }
 
@@ -82,7 +78,7 @@ function scoreMove(
   // Productive: unflipped tile (we'll flip and resolve)
   if (!tile.isFlipped) {
     let score = 10;
-    if (targetRow >= 4) score -= 5; // Mansion row = Ender risk
+    if (targetRow >= 4) score -= 5; // Mansion row = Old Man Johnson risk
     if (pos) {
       const dist = Math.abs(pos.row - targetRow) + Math.abs(pos.column - targetCol);
       score -= dist * 0.3;
@@ -97,19 +93,19 @@ function scoreMove(
     return -2; // Already collected, no benefit
   }
 
-  // Productive: Item tile (we can draw) - only if not yet used
-  if (tile.card?.type === 'Item') {
+  // Productive: Item / Candy Item tile (we can draw) - only if not yet used
+  if (tile.card?.type === 'Item' || tile.card?.type === 'CandyItem') {
     return tile.itemCollected ? -2 : 6;
   }
 
   // Non-productive: Monster (we trigger effect, no gain)
   if (tile.card?.type === 'Monster') return 1;
 
-  // Non-productive: Ender (round ends, but we might not want to trigger)
-  if (tile.card?.type === 'Ender') return 2;
+  // King Size Bar: high value (5-7 pts) — only if not yet claimed
+  if (tile.card?.type === 'KingSizeBar') return tile.itemCollected ? -2 : 12;
 
-  // House on the Hill: 10-point prize, game ends - high priority in Neighborhood 3
-  if (tile.card?.type === 'HouseOnHill') return 15;
+  // Old Man Johnson: round ends, we lose round candy - avoid unless strategic
+  if (tile.card?.type === 'OldManJohnson') return 2;
 
   // Empty bucket, already-collected bucket, etc.
   return -1;
@@ -175,15 +171,18 @@ export function getBotAction(
 
 function evaluateItemPlay(state: GameState, player: Player): BotAction | null {
   for (const item of player.itemCards) {
-    if (item.type === 'NaughtyKid') {
+    if (item.type === 'IntrusiveThoughts') {
       const bucket = findBucketWithTokens(state);
       if (bucket) {
-        return {
-          type: 'playItem',
-          logMessage: `${player.name} used Naughty Kid on ${formatTileLocation(bucket.row, bucket.col)}`,
+        const isOnBucket = player.pawnPosition?.row === bucket.row && player.pawnPosition?.column === bucket.col;
+        if (isOnBucket) {
+          return {
+            type: 'playItem',
+            logMessage: `${player.name} used Intrusive Thoughts on ${formatTileLocation(bucket.row, bucket.col)}`,
           item,
           targetTile: { row: bucket.row, col: bucket.col },
-        };
+          };
+        }
       }
     }
     if (item.type === 'Shortcut') {
@@ -236,8 +235,8 @@ function findBestShortcutTarget(state: GameState, player: Player): { row: number
       else if (t.card?.type === 'CandyBucket' && t.candyTokensOnTile > 0) {
         const visits = t.bucketVisits?.[player.id] ?? 0;
         if (visits < 1) score = 8;
-      } else if (t.card?.type === 'Item') score = 6;
-      if (r >= 4) score -= 5;
+      } else if (t.card?.type === 'Item' || t.card?.type === 'CandyItem') score = 6;
+      if (r >= 4) continue; // Shortcut cannot target mansion row
       if (score > 0 && (!best || score > best.score)) {
         best = { row: r, col: c, score };
       }

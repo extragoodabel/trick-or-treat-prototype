@@ -91,7 +91,7 @@ export function TileComponent({
       : undefined;
 
   let content = '';
-  const showSpiderWeb = tile.isSpent || (card?.type === 'Item' && tile.itemCollected && !isAnimatingItemReveal);
+  const showSpiderWeb = tile.isSpent || ((card?.type === 'Item' || card?.type === 'CandyItem' || card?.type === 'KingSizeBar') && tile.itemCollected && !isAnimatingItemReveal);
   if (showSpiderWeb) {
     content = '🕸️';
   } else if (showCard && card) {
@@ -100,22 +100,23 @@ export function TileComponent({
           content = '🍬';
           break;
         case 'Item':
+        case 'CandyItem':
           content = '🎁';
           break;
         case 'Monster':
           content = card.monsterType ? MONSTER_ICONS[card.monsterType] || '👹' : '👹';
           break;
-        case 'Ender':
-          content = '🏚️';
+        case 'KingSizeBar':
+          content = '🍫';
           break;
-        case 'HouseOnHill':
-          content = '🏆';
+        case 'OldManJohnson':
+          content = '🏚️';
           break;
         default:
           content = '?';
     }
   } else {
-    content = isHouseOnHill ? '✨' : '🏠';
+    content = '🏠';
   }
 
   // Legal move / current tile uses active player color; move destination uses mover's color

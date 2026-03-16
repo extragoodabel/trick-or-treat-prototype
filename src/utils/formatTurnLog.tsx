@@ -2,10 +2,11 @@
  * Inline icon replacements for turn log messages.
  */
 const REPLACEMENTS: [RegExp, string][] = [
-  [/\bFull Size Bar\b/g, '🍫 Full Size Bar'],
+  [/\bKing Size Bar\b/g, '🍫 King Size Bar'],
   [/\bFlashlight\b/g, '🔦 Flashlight'],
+  [/\bBinoculars\b/g, '🔭 Binoculars'],
   [/\bShortcut\b/g, '🗺️ Shortcut'],
-  [/\bNaughty Kid\b/g, '😈 Naughty Kid'],
+  [/\bIntrusive Thoughts\b/g, '😈 Intrusive Thoughts'],
   [/\bToothbrush\b/g, '🪥 Toothbrush'],
   [/\bPennies\b/g, '🪙 Pennies'],
   [/\bRotten Apple\b/g, '🍎 Rotten Apple'],
@@ -21,8 +22,7 @@ const REPLACEMENTS: [RegExp, string][] = [
   [/\bWerewolf\b/g, '🐺 Werewolf'],
   [/\bGoblin\b/g, '👺 Goblin'],
   [/\bVampire\b/g, '🧛 Vampire'],
-  [/\bEnder\b/g, '🏚️ Ender'],
-  [/\bHouse on the Hill\b/g, '🏆 House on the Hill'],
+  [/\bOld Man Johnson\b/g, '🏚️ Old Man Johnson'],
   [/\bKing Size\b/g, '🍫 King Size'],
   [/\bwent home\b/g, 'went 🏠 home'],
 ];

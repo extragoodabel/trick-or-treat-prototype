@@ -9,7 +9,13 @@ export type MonsterType =
   | 'Vampire';
 
 // Card types for tiles
-export type TileCardType = 'CandyBucket' | 'Item' | 'Monster' | 'Ender' | 'HouseOnHill';
+export type TileCardType =
+  | 'CandyBucket'
+  | 'Item'
+  | 'CandyItem'
+  | 'Monster'
+  | 'KingSizeBar'
+  | 'OldManJohnson';
 
 // Base card for tiles
 export interface TileCard {
@@ -17,15 +23,17 @@ export interface TileCard {
   monsterType?: MonsterType;
 }
 
-// Item card types
+// Item card types (playable or scoring)
 export type ItemCardType =
-  | 'FullSizeBar'
   | 'Flashlight'
+  | 'Binoculars'
   | 'Shortcut'
-  | 'NaughtyKid'
+  | 'IntrusiveThoughts'
   | 'Toothbrush'
   | 'Pennies'
-  | 'RottenApple';
+  | 'RottenApple'
+  | 'KingSizeBar'
+  | 'CandyItem';
 
 export interface ItemCard {
   id: string;
@@ -51,7 +59,7 @@ export interface Tile {
 // Costume types (match monster types)
 export type CostumeType = MonsterType;
 
-// Controller type: human or bot (for future multiplayer, seats can be human or bot)
+// Controller type: human or bot
 export type ControllerType = 'human' | 'bot';
 
 // Player object
@@ -68,11 +76,11 @@ export interface Player {
   itemCards: ItemCard[];
   isHome: boolean;
   skipNextTurn: boolean;
-  /** True if this player revealed their hand (e.g. via Skeleton) - others can see their items */
+  /** True if this player revealed their hand (e.g. via Skeleton) */
   handRevealed?: boolean;
 }
 
-/** Total candy (banked + round) for display/scoring */
+/** Total candy (banked + round) for display */
 export function getTotalCandy(player: Player): number {
   return player.bankedCandy + player.roundCandy;
 }
@@ -90,43 +98,32 @@ export type GamePhase =
 export interface GameState {
   players: Player[];
   currentPlayerIndex: number;
+  /** 1 = clockwise, -1 = counter-clockwise (Werewolf reversed) */
+  playDirection: number;
   board: Tile[][];
   houseDeck: TileCard[];
   mansionDeck: TileCard[];
   candySupply: number;
   roundNumber: number;
-  /** Total neighborhoods to play (from game config) */
   totalRounds: number;
-  /** Player colors (hex) for UI - human gets chosen color, bots get rest */
   playerColors: string[];
   gamePhase: GamePhase;
   selectedAction: 'move' | 'goHome' | 'playItem' | null;
   pendingItemPlay: ItemCard | null;
   message: string;
   turnLog: string[];
-  /** For UI feedback: player IDs affected by last action (e.g. monster, Witch swap) */
   lastAffectedPlayerIds?: string[];
-  /** For UI feedback: short description of what happened to affected players */
   lastActionDescription?: string;
-  /** Full consequence message for top banner (e.g. "Witch Bot swapped hands with Player 1") */
   lastConsequenceMessage?: string;
-  /** For Witch swap animation: player indices involved */
   lastWitchSwap?: { fromPlayerIndex: number; toPlayerIndex: number };
-  /** For Goblin theft animation: from/to player indices and item type */
   lastGoblinTheft?: { fromPlayerIndex: number; toPlayerIndex: number; itemType: string };
-  /** For candy delta floating indicators: player index and amount (positive = gain, negative = loss) */
   lastCandyDeltas?: { playerIndex: number; delta: number }[];
-  /** For movement arrow animation: from/to/playerIndex (App looks up color) */
   lastMoveForAnimation?: { from: { row: number; col: number }; to: { row: number; col: number }; playerIndex: number };
-  /** For item reveal: show item on tile, then fly to player inventory */
   lastRevealedItem?: { row: number; col: number; itemType: string; playerIndex: number };
-  /** For candy collection: fly candy to player panel */
   lastRevealedCandy?: { row: number; col: number; playerIndex: number; amount: number };
-  /** Ender was triggered - show "You barely escaped" overlay before round results */
-  lastEnderReveal?: boolean;
-  /** Tile occupancy order: "row,col" -> player IDs in arrival order (first = innermost ring) */
+  /** Old Man Johnson was triggered */
+  lastOldManJohnsonReveal?: boolean;
   tileOccupancyOrder?: Record<string, string[]>;
-  /** Flashlight reveal phase: beam → flip → resolve */
   flashlightReveal?: {
     row: number;
     col: number;
@@ -138,4 +135,6 @@ export interface GameState {
     revealMessage: string;
     phase: 'beam' | 'reveal';
   };
+  /** Binoculars: peeked tile coords for UI */
+  binocularsPeek?: { row: number; col: number }[];
 }

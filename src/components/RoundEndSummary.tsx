@@ -23,7 +23,7 @@ export function RoundEndSummary({ state, onContinue }: RoundEndSummaryProps) {
               <span className="player-candy">🏦 {p.bankedCandy} banked</span>
               <span className="player-items">📦 {p.itemCards.length} items</span>
               <span className="player-status">
-                {p.isHome ? '🏠 Went home safely' : '⚠️ Still out when Ender appeared'}
+                {p.isHome ? '🏠 Went home safely' : '⚠️ Still out when Old Man Johnson appeared'}
               </span>
             </div>
           ))}

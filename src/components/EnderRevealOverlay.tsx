@@ -7,7 +7,7 @@ interface EnderRevealOverlayProps {
 }
 
 /**
- * Full-screen overlay shown when the Ender card is revealed.
+ * Full-screen overlay shown when Old Man Johnson is revealed.
  * Displays an ominous message, dims the background, and triggers onComplete after a brief pause.
  */
 export function EnderRevealOverlay({ onComplete, durationMs = 1800 }: EnderRevealOverlayProps) {
@@ -20,7 +20,7 @@ export function EnderRevealOverlay({ onComplete, durationMs = 1800 }: EnderRevea
     <div className="ender-reveal-overlay" aria-live="polite">
       <div className="ender-reveal-dim" aria-hidden="true" />
       <div className="ender-reveal-message">
-        <p className="ender-reveal-text">You have awoken the Ender...</p>
+        <p className="ender-reveal-text">Old Man Johnson has awoken...</p>
         <p className="ender-reveal-emoji">😱</p>
       </div>
     </div>

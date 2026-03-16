@@ -61,13 +61,13 @@ export default function App() {
 
   // Ender reveal: reset moment flag only when first entering roundEnd with lastEnderReveal
   useEffect(() => {
-    const nowEnder = state?.gamePhase === 'roundEnd' && !!state?.lastEnderReveal;
+    const nowEnder = state?.gamePhase === 'roundEnd' && !!state?.lastOldManJohnsonReveal;
     if (nowEnder && !prevEnderRevealRef.current) {
       setEnderMomentComplete(false);
       prevEnderRevealRef.current = true;
     }
     if (!nowEnder) prevEnderRevealRef.current = false;
-  }, [state?.gamePhase, state?.lastEnderReveal]);
+  }, [state?.gamePhase, state?.lastOldManJohnsonReveal]);
 
   // Turn-start pulse: track when current player changes for brief highlight animation
   useEffect(() => {
@@ -281,7 +281,7 @@ export default function App() {
         if (pendingItem.type === 'Shortcut') {
           setState(playItem(state, pendingItem, { row, col }));
           setPendingItem(null);
-        } else if (pendingItem.type === 'NaughtyKid' || pendingItem.type === 'Flashlight') {
+        } else if (pendingItem.type === 'IntrusiveThoughts' || pendingItem.type === 'Flashlight' || pendingItem.type === 'Binoculars') {
           setState(playItem(state, pendingItem, { row, col }));
           setPendingItem(null);
         }
@@ -293,7 +293,7 @@ export default function App() {
   const handlePlayItem = useCallback(
     (item: ItemCard) => {
       if (!state) return;
-      const targetedTypes = ['Shortcut', 'NaughtyKid', 'Flashlight'];
+      const targetedTypes = ['Shortcut', 'IntrusiveThoughts', 'Flashlight', 'Binoculars'];
       const needsTarget = targetedTypes.includes(item.type);
       if (needsTarget) {
         if (pendingItem?.id === item.id) {
@@ -326,7 +326,6 @@ export default function App() {
 
   if (state.gamePhase === 'gameOver') {
     const scores = getFinalScores(state);
-    const hillMessage = state.message?.includes('House on the Hill');
     return (
       <div className="app game-over">
         <header className="game-over-header">
@@ -335,7 +334,7 @@ export default function App() {
             Rules
           </button>
         </header>
-        {hillMessage && (
+        {state.message && (
           <p className="game-over-message">{state.message}</p>
         )}
         <div className="scores">
@@ -460,7 +459,7 @@ export default function App() {
   }
 
   if (state.gamePhase === 'roundEnd') {
-    const showEnderMoment = state.lastEnderReveal && !enderMomentComplete;
+    const showEnderMoment = state.lastOldManJohnsonReveal && !enderMomentComplete;
     if (!showEnderMoment) {
       return (
         <div className="app">
@@ -490,7 +489,7 @@ export default function App() {
   const canAct = isHumanTurn && !currentPlayer.isHome && !currentPlayer.skipNextTurn && !isFlashlightReveal;
   const currentPlayerColor = state.playerColors[state.currentPlayerIndex] ?? '#fff';
   const isEnderRevealMoment =
-    state.gamePhase === 'roundEnd' && !!state.lastEnderReveal && !enderMomentComplete;
+    state.gamePhase === 'roundEnd' && !!state.lastOldManJohnsonReveal && !enderMomentComplete;
 
   // Live status: flashlight message during reveal, else consequence, else last turn log
   const lastLogEntry = state.turnLog[state.turnLog.length - 1];

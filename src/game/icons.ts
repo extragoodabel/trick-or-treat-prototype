@@ -13,20 +13,24 @@ export const COSTUME_ICONS: Record<string, string> = {
 };
 
 export const ITEM_ICONS: Record<string, string> = {
-  FullSizeBar: '🍫',
+  KingSizeBar: '🍫',
+  CandyItem: '🍬',
   Flashlight: '🔦',
+  Binoculars: '🔭',
   Shortcut: '🗺️',
-  NaughtyKid: '😈',
+  IntrusiveThoughts: '😈',
   Toothbrush: '🪥',
   Pennies: '🪙',
   RottenApple: '🍎',
 };
 
 export const ITEM_LABELS: Record<string, string> = {
-  FullSizeBar: 'Full Size Bar',
+  KingSizeBar: 'King Size Bar',
+  CandyItem: 'Candy Item',
   Flashlight: 'Flashlight',
+  Binoculars: 'Binoculars',
   Shortcut: 'Shortcut',
-  NaughtyKid: 'Naughty Kid',
+  IntrusiveThoughts: 'Intrusive Thoughts',
   Toothbrush: 'Toothbrush',
   Pennies: 'Pennies',
   RottenApple: 'Rotten Apple',

@@ -213,7 +213,7 @@
   align-items: center;
   gap: 0.5rem;
   width: 100%;
-  max-width: 560px;
+  max-width: min(720px, 60vmin);
 }
 
 /* ---------- Setup & Game Over Screens ---------- */
@@ -989,15 +989,16 @@
 }
 
 /* ---------- Board - Center Column (Prioritized) ---------- */
+/* Scale with viewport: up to 720px on large screens, 60vmin keeps it proportional */
 .board-and-controls .board-area {
   flex-shrink: 0;
   display: flex;
   justify-content: center;
   align-items: center;
   width: 100%;
-  max-width: 520px;
-  height: 500px;
-  max-height: 500px;
+  max-width: min(720px, 60vmin);
+  height: min(720px, 60vmin);
+  max-height: min(720px, 60vmin);
 }
 
 .neighborhood-board {
@@ -1725,7 +1726,7 @@
   border-radius: 8px;
   flex-shrink: 0;
   width: 100%;
-  max-width: 520px;
+  max-width: min(720px, 60vmin);
   box-sizing: border-box;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
@@ -1763,7 +1764,7 @@
 /* Live status banner - play-by-play action feed above board */
 .live-status-banner {
   width: 100%;
-  max-width: 560px;
+  max-width: min(720px, 60vmin);
   padding: 0.6rem 1.25rem;
   display: flex;
   align-items: center;
@@ -1989,16 +1990,16 @@
   }
   .app--game-view .board-and-controls {
     gap: 0.4rem;
-    max-width: 480px;
+    max-width: min(560px, 55vmin);
   }
   .app--game-view .live-status-banner {
-    max-width: 480px;
+    max-width: min(560px, 55vmin);
     font-size: 1rem;
   }
   .app--game-view .board-and-controls .board-area {
-    max-width: 480px;
-    height: 450px;
-    max-height: 450px;
+    max-width: min(560px, 55vmin);
+    height: min(560px, 55vmin);
+    max-height: min(560px, 55vmin);
   }
   .app--game-view .neighborhood-board {
     padding: 0.75rem;
@@ -2008,7 +2009,7 @@
   }
   .app--game-view .board-and-controls .controls {
     padding: 0.35rem 0.6rem;
-    max-width: 480px;
+    max-width: min(560px, 55vmin);
   }
   .app--game-view .board-and-controls .controls button {
     padding: 0.35rem 0.7rem;
@@ -2098,18 +2099,18 @@
     font-size: 0.9rem;
   }
   .app--game-view .board-and-controls {
-    max-width: 420px;
+    max-width: min(480px, 50vmin);
     gap: 0.35rem;
   }
   .app--game-view .live-status-banner {
-    max-width: 420px;
+    max-width: min(480px, 50vmin);
     font-size: 0.95rem;
     padding: 0.4rem 0.75rem;
   }
   .app--game-view .board-and-controls .board-area {
-    max-width: 420px;
-    height: 400px;
-    max-height: 400px;
+    max-width: min(480px, 50vmin);
+    height: min(480px, 50vmin);
+    max-height: min(480px, 50vmin);
   }
   .app--game-view .neighborhood-board {
     padding: 0.5rem;
@@ -2141,7 +2142,7 @@
   }
   .app--game-view .board-and-controls .controls {
     padding: 0.3rem 0.5rem;
-    max-width: 420px;
+    max-width: min(480px, 50vmin);
   }
   .app--game-view .board-and-controls .controls button {
     padding: 0.3rem 0.6rem;
@@ -2244,18 +2245,18 @@
     padding: 0.08rem 0.25rem 0.25rem;
   }
   .app--game-view .board-and-controls {
-    max-width: 360px;
+    max-width: min(400px, 45vmin);
     gap: 0.3rem;
   }
   .app--game-view .live-status-banner {
-    max-width: 360px;
+    max-width: min(400px, 45vmin);
     font-size: 0.9rem;
     padding: 0.35rem 0.6rem;
   }
   .app--game-view .board-and-controls .board-area {
-    max-width: 360px;
-    height: 340px;
-    max-height: 340px;
+    max-width: min(400px, 45vmin);
+    height: min(400px, 45vmin);
+    max-height: min(400px, 45vmin);
   }
   .app--game-view .neighborhood-board {
     padding: 0.4rem;
@@ -2291,7 +2292,7 @@
   }
   .app--game-view .board-and-controls .controls {
     padding: 0.25rem 0.4rem;
-    max-width: 360px;
+    max-width: min(400px, 45vmin);
   }
   .app--game-view .board-and-controls .controls button {
     padding: 0.25rem 0.5rem;

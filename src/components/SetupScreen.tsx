@@ -80,7 +80,7 @@ export function SetupScreen({
             <input
               type="range"
               min={2}
-              max={4}
+              max={6}
               value={config.playerCount}
               onChange={(e) => setPlayerCount(parseInt(e.target.value, 10))}
             />

@@ -70,8 +70,7 @@ export function generateBoard(
 ): { board: Tile[][]; houseDeck: TileCard[]; mansionDeck: TileCard[] } {
   const board = createEmptyBoard();
   const houseDeck = shuffle(getHouseDeckForRound(roundNumber));
-  const mansionPool = getMansionDeckForRound(roundNumber);
-  const mansionDeck = shuffle(mansionPool);
+  const mansionDeck = shuffle(getMansionDeckForRound(roundNumber));
 
   let houseIndex = 0;
   for (let r = 0; r < GAME_RULES.houseDeckRows; r++) {
@@ -83,38 +82,15 @@ export function generateBoard(
     }
   }
 
-  // Row 5: 4 random mansion + 1 Ender
-  const mansionDraw = mansionDeck
-    .filter((c) => c.type !== 'Ender')
-    .slice(0, GAME_RULES.mansionCardsCount);
-  const ender = mansionDeck.find((c) => c.type === 'Ender')!;
-  const row5Cards = shuffle([...mansionDraw, ender]);
+  // Row 5 (index 4): Mansion deck - 4 King Size Bar + 1 Old Man Johnson
   for (let c = 0; c < GAME_RULES.boardCols; c++) {
-    board[4][c].card = row5Cards[c];
-  }
-
-  // Neighborhood 3 only: House on the Hill beyond Mansion Row (row 5, center)
-  if (roundNumber === 2) {
-    const hillRow: Tile[] = [];
-    for (let c = 0; c < GAME_RULES.boardCols; c++) {
-      const isHillHouse = c === 2;
-      hillRow.push({
-        row: 5,
-        column: c,
-        card: isHillHouse ? { type: 'HouseOnHill' } : null,
-        isFlipped: false,
-        candyTokensOnTile: 0,
-        isClosed: !isHillHouse, // Only center tile is reachable
-        bucketVisits: {},
-      });
-    }
-    board.push(hillRow);
+    board[4][c].card = mansionDeck[c];
   }
 
   return {
     board,
     houseDeck: houseDeck.slice(houseIndex),
-    mansionDeck: mansionDeck.filter((c) => !row5Cards.includes(c)),
+    mansionDeck: [],
   };
 }
 
@@ -128,7 +104,7 @@ export function setupNewNeighborhood(
   const players = state.players.map((p) => ({
     ...p,
     pawnPosition: devSkipToMansion ? { row: 4, column: 0 } : null,
-    roundCandy: 0,
+    roundCandy: GAME_RULES.startingCandyPerRound,
     isHome: false,
     skipNextTurn: false,
   }));
@@ -158,6 +134,7 @@ export function setupNewNeighborhood(
     mansionDeck,
     candySupply: GAME_RULES.initialCandySupply,
     currentPlayerIndex: 0,
+    playDirection: 1,
     gamePhase,
     selectedAction: null,
     pendingItemPlay: null,
